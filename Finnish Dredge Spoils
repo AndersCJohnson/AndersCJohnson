@@ -1,0 +1,1453 @@
+---
+title: "Spoils EEMiS"
+author: "anders"
+date: "2021 07 26"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r set working directory}
+setwd("~/Laboratory Journal/schristel-spoils2018/Spoils2018/Spoils Manuscript/R_Spoils_clean")
+```
+
+```{r}
+library(tidyverse)
+library(vegan)
+library(ggplot2)
+library(gridExtra)
+library (asbio)
+library(ggrepel)
+```
+
+##This brings in the metadata
+```{r import meta_data}
+sample_meta_data <- read_csv("repl_spoils_plate_metadata_CLEANED.csv", col_names = TRUE)
+
+```
+
+```{r import feature table}
+feature_table <- read_csv("repl_feature-table_metadata_CLEANED.csv", col_types = cols(.default = col_double(), seqid = col_character()))
+
+asvs<-feature_table%>%
+  gather(sample, count, 2:ncol(.)) %>% 
+  filter(count > 0) %>%
+  group_by(sample) %>% 
+  mutate(relab = count/sum(count)) %>% 
+  filter(n() > 10) %>% 
+  ungroup()
+
+```
+
+```{r import taxonomy table}
+taxonomy <- read_tsv("taxonomy.fetid.tsv", col_types = cols(`Feature ID` = col_character(), Taxon = col_character(), Confidence = col_double())) %>%
+  mutate(Taxon = gsub('D_[0-9]__', '', Taxon)) %>%
+  separate(Taxon, c('domain', 'phylum', 'class', 'order', 'family', 'genus', 'species'), sep = ';', fill = 'right') %>%
+  rename(seqid = `Feature ID`)%>%
+  # rename "uncultured" to N/A
+  mutate(across(c(class, order, family, genus, species), ~na_if(., "uncultured")))%>%
+  mutate(across(c(class, order, family, genus, species), ~na_if(., "uncultured bacterium")))%>%
+  mutate(across(c(class, order, family, genus, species), ~na_if(., "uncultured organism")))%>%
+  mutate(across(c(class, order, family, genus, species), ~na_if(., "uncultured Actinomycetales bacterium")))
+```
+
+```{r check rarefaction}
+
+feature_table%>%
+  gather(sample, count, -1)%>%
+  group_by(seqid)%>%
+  #filter(count > 0) %>% 
+  ungroup() %>%
+  mutate(count = as.integer(count))%>%
+  # Add metadata
+ inner_join(sample_meta_data, by = 'sample')%>%
+  # Relative abundance, grouped first by sample name, and then next by rep(sampling replicate identifier)
+  group_by(sample) %>%
+  group_by(rep)%>% #do at sample level first 
+  mutate(relab = count/sum(count)) %>% ungroup() -> seqtab
+
+seqtab %>%
+  select ( seqid, sample, count) %>%
+  spread(seqid, count, fill = 0) %>%
+  column_to_rownames("sample")%>%
+rarecurve(sample= 100, step = 100, xlab = "Sequencing Depth", ylab = "# of ASVs")
+
+```
+####phyla
+
+```{r assign-top10-phyla-to-taxonomy}
+# Start by finding the top 11 phyla *on average* over the samples
+p <- asvs %>%
+  inner_join(taxonomy, by = 'seqid') %>%
+  group_by(phylum, sample) %>%
+  # Calculate the relative abundance of each phylum in each sample
+  summarise(relab = sum(relab)) %>%
+  # Calculate the *mean* relative abundance of each phylum over the samples
+  summarise(mean_relab = sum(relab)) %>%
+  ungroup() %>%
+  # Filter out non-assigned phyla
+  filter(!is.na(phylum)) %>%
+  # Select the top 11
+  top_n(11, mean_relab)
+# Add this information to the taxonomy table as the column topphylum
+taxonomy <- taxonomy %>%
+  # Join in the top 10 table. *Important* with left join, otherwise you loose rows in the
+  # taxonomy table that do not appear in the top 11 table.
+  left_join(
+    p %>% 
+      # Duplicate the phylum column, with the old name and as "topphylum"
+      transmute(phylum, topphylum = phylum),
+    by = 'phylum'
+  ) %>%
+  # Set topphylum to 'Other' for those that were not among the top 11
+  replace_na(list('topphylum' = 'Other'))
+```
+
+```{r}
+asvs %>%
+  left_join(taxonomy, by = 'seqid') %>%
+  group_by(sample, family) %>% summarise(relab = sum(relab)) %>% ungroup() %>%
+  spread(sample, relab, fill = 0) %>%
+  write_tsv('asvs.tsv')
+```
+```{r plot-top-phylum}
+asvs %>%
+  inner_join(taxonomy, by = 'seqid') %>%
+  group_by(topphylum, sample) %>% summarise(relab = sum(relab)) %>% ungroup() %>%
+  ggplot(aes(
+    x = fct_relevel(sample, c("Reference","M131415-60" , "M131415-30" ,"M131415-20" , "M131415-10" ,"M101112-60" , "M101112-30" , "M101112-20" , "M101112-10" , "M789-60" , "M789-30" , "M789-20" ,"M789-10" , "M456-60" , "M456-30" , "M456-20" , "M456-10" , "M123-60" , "M123-30" , "M123-20" )), 
+    y = relab, 
+    fill = topphylum)) +
+  geom_col() +
+  scale_fill_brewer('phylum', palette = 'Paired') +
+  coord_flip() +
+  labs(title = "Top 11 Phyla")+
+  ylab("Relative Abundance")+
+  xlab("Site")+
+  theme(
+    legend.position = 'bottom')
+```
+```{r}
+ggsave("StackedBar_spoils_Top_11_phyla_bysites.png", width = 32, height = 21, units = "cm")
+```
+
+```{r plot-top-genera by dates and depths}
+asvs %>%
+  inner_join(taxonomy, by = 'seqid') %>%
+  inner_join(sample_meta_data, by = "sample")%>%
+  group_by(topphylum,sample, depth, date) %>% summarise(relab = sum(relab)) %>% ungroup() %>%
+  ggplot(aes(
+    y = fct_relevel(date, c("Reference","7/11/2016","2/5/2017","3/8/2017","24/10/2017","9/5/2018")),
+    x = relab,
+    fill = fct_relevel(topphylum, c("Other")))) +
+  facet_grid(. ~ depth, scales = "free_x")+
+  geom_col() +
+  scale_fill_brewer('phylum', palette = 'Paired') +
+  coord_flip() +
+  labs(title = "Phyla") +
+  xlab("Relative Abundance")+
+  ylab("Date")+
+     theme(legend.position = 'bottom', 
+       panel.background = element_blank(),
+       legend.title = element_blank(),
+       #aspect.ratio = 1,
+       axis.ticks.y = element_blank(),
+       text = element_text(colour = "black"),
+       axis.text.y = element_text(hjust = 1),
+       axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+```
+```{r}
+ggsave("StackedBar_spoils_Top_11_phyla_split.png", width = 32, height = 21, units = "cm")
+```
+
+
+
+###genera
+
+```{r assign-top10-genera-to-taxonomy}
+# Start by finding the top 11 genera *on average* over the samples
+g <- asvs %>%
+  inner_join(taxonomy, by = 'seqid') %>%
+  group_by(genus, sample) %>%
+  # Calculate the relative abundance of each genus in each sample
+  summarise(relab = sum(relab)) %>%
+  # Calculate the *mean* relative abundance of each genus over the samples
+  summarise(mean_relab = sum(relab)) %>%
+  ungroup() %>%
+  # Filter out non-assigned genera
+  filter(!is.na(genus)) %>%
+  # Select the top 11
+  top_n(11, mean_relab)
+# Add this information to the taxonomy table as the column topgenus
+taxonomy <- taxonomy %>%
+  # Join in the top 10 table. *Important* with left join, otherwise you loose rows in the
+  # taxonomy table that do not appear in the top 11 table.
+  left_join(
+    g %>% 
+      # Duplicate the genus column, with the old name and as "topgenus"
+      transmute(genus, topgenus = genus),
+    by = 'genus'
+  ) %>%
+  # Set topgenus to 'Other' for those that were not among the top 11
+  replace_na(list('topgenus' = 'Other'))
+```
+
+
+
+
+
+```{r plot-top-genera}
+asvs %>%
+  inner_join(taxonomy, by = 'seqid') %>%
+  group_by(topgenus, sample) %>% summarise(relab = sum(relab)) %>% ungroup() %>%
+  ggplot(aes(
+    x = fct_relevel(sample, c("Reference","M131415-60" , "M131415-30" ,"M131415-20" , "M131415-10" ,"M101112-60" , "M101112-30" , "M101112-20" , "M101112-10" , "M789-60" , "M789-30" , "M789-20" ,"M789-10" , "M456-60" , "M456-30" , "M456-20" , "M456-10" , "M123-60" , "M123-30" , "M123-20" )), 
+    y = relab, 
+    fill = topgenus)) +
+  geom_col() +
+  scale_fill_brewer('genus', palette = 'Paired') +
+  coord_flip() +
+  labs( title = "Top 11 Genera")+
+  ylab("Relative Abundance")+
+  xlab("Site")+
+  theme(
+    legend.position = 'bottom'
+    
+  )
+```
+```{r}
+ggsave("StackedBar_spoils_Top_11_genera_bysites.png", width = 32, height = 21, units = "cm")
+```
+
+```{r plot-top-genera by dates and depths}
+asvs %>%
+  inner_join(taxonomy, by = 'seqid') %>%
+  inner_join(sample_meta_data, by = "sample")%>%
+  group_by(topgenus,sample, depth, date) %>% summarise(relab = sum(relab)) %>% ungroup() %>%
+  ggplot(aes(
+    y = fct_relevel(date, c("Reference","7/11/2016","2/5/2017","3/8/2017","24/10/2017","9/5/2018")),
+    x = relab,
+    fill = fct_relevel(topgenus, c("Other")))) +
+  facet_grid(. ~ depth, scales = "free_x")+
+  geom_col() +
+  scale_fill_brewer('genus', palette = 'Paired') +
+  coord_flip() +
+  labs(title = "Genera")+
+  xlab("Relative Abundance")+
+  ylab("Date")+
+     theme(legend.position = 'bottom', 
+       panel.background = element_blank(),
+       legend.title = element_blank(),
+       #aspect.ratio = 1,
+       axis.ticks.y = element_blank(),
+       text = element_text(colour = "black"),
+       axis.text.y = element_text(hjust = 1),
+       axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+```
+```{r}
+ggsave("StackedBar_spoils_Top_11_genera_split.png", width = 32, height = 21, units = "cm")
+```
+
+###class
+
+```{r assign-top10-class-to-taxonomy}
+# Start by finding the top 11 class *on average* over the samples
+c <- asvs %>%
+  inner_join(taxonomy, by = 'seqid') %>%
+  group_by(class, sample) %>%
+  # Calculate the relative abundance of each class in each sample
+  summarise(relab = sum(relab)) %>%
+  # Calculate the *mean* relative abundance of each class over the samples
+  summarise(mean_relab = sum(relab)) %>%
+  ungroup() %>%
+  # Filter out non-assigned class
+  filter(!is.na(class)) %>%
+  # Select the top 11
+  top_n(11, mean_relab)
+# Add this information to the taxonomy table as the column topclass
+taxonomy <- taxonomy %>%
+  # Join in the top 10 table. *Important* with left join, otherwise you loose rows in the
+  # taxonomy table that do not appear in the top 11 table.
+  left_join(
+    c %>% 
+      # Duplicate the class column, with the old name and as "topclass"
+      transmute(class, topclass = class),
+    by = 'class'
+  ) %>%
+  # Set topclass to 'Other' for those that were not among the top 11
+  replace_na(list('topclass' = 'Other'))
+```
+
+```{r plot-top-class}
+asvs %>%
+  inner_join(taxonomy, by = 'seqid') %>%
+  group_by(topclass, sample) %>% summarise(relab = sum(relab)) %>% ungroup() %>%
+  ggplot(aes(
+    x = fct_relevel(sample, c("Reference","M131415-60" , "M131415-30" ,"M131415-20" , "M131415-10" ,"M101112-60" , "M101112-30" , "M101112-20" , "M101112-10" , "M789-60" , "M789-30" , "M789-20" ,"M789-10" , "M456-60" , "M456-30" , "M456-20" , "M456-10" , "M123-60" , "M123-30" , "M123-20" )), 
+    y = relab, 
+    fill = topclass)) +
+  geom_col() +
+  scale_fill_brewer('class', palette = 'Paired') +
+  coord_flip() +
+  labs( title = "Top 11 Class")+
+  ylab("Relative Abundance")+
+  xlab("Site")+
+  theme(
+    legend.position = 'bottom'
+    
+  )
+```
+```{r}
+ggsave("StackedBar_spoils_Top_11_class_bysites.png", width = 32, height = 21, units = "cm")
+```
+
+```{r plot-top-class by dates and depths}
+asvs %>%
+  inner_join(taxonomy, by = 'seqid') %>%
+  inner_join(sample_meta_data, by = "sample")%>%
+  group_by(topclass,sample, depth, date) %>% summarise(relab = sum(relab)) %>% ungroup() %>%
+  ggplot(aes(
+    y = fct_relevel(date, c("Reference","7/11/2016","2/5/2017","3/8/2017","24/10/2017","9/5/2018")),
+    x = relab,
+    fill = fct_relevel(topclass, c("Other")))) +
+  facet_grid(. ~ depth, scales = "free_x")+
+  geom_col() +
+  scale_fill_brewer('class', palette = 'Paired') +
+  coord_flip() +
+  labs(title = "Class")+
+  xlab("Relative Abundance")+
+  ylab("Date")+
+     theme(legend.position = 'bottom', 
+       panel.background = element_blank(),
+       legend.title = element_blank(),
+       #aspect.ratio = 1,
+       axis.ticks.y = element_blank(),
+       text = element_text(colour = "black"),
+       axis.text.y = element_text(hjust = 1),
+       axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+```
+```{r}
+ggsave("StackedBar_spoils_Top_11_class_split.png", width = 32, height = 21, units = "cm")
+```
+
+###order
+
+```{r assign-top10-order-to-taxonomy}
+# Start by finding the top 11 order *on average* over the samples
+o <- asvs %>%
+  inner_join(taxonomy, by = 'seqid') %>%
+  group_by(order, sample) %>%
+  # Calculate the relative abundance of each order in each sample
+  summarise(relab = sum(relab)) %>%
+  # Calculate the *mean* relative abundance of each order over the samples
+  summarise(mean_relab = sum(relab)) %>%
+  ungroup() %>%
+  # Filter out non-assigned order
+  filter(!is.na(order)) %>%
+  # Select the top 11
+  top_n(11, mean_relab)
+# Add this information to the taxonomy table as the column toporder
+taxonomy <- taxonomy %>%
+  # Join in the top 10 table. *Important* with left join, otherwise you loose rows in the
+  # taxonomy table that do not appear in the top 11 table.
+  left_join(
+    o %>% 
+      # Duplicate the order column, with the old name and as "toporder"
+      transmute(order, toporder = order),
+    by = 'order'
+  ) %>%
+  # Set toporder to 'Other' for those that were not among the top 11
+  replace_na(list('toporder' = 'Other'))
+```
+
+```{r plot-top-order}
+asvs %>%
+  inner_join(taxonomy, by = 'seqid') %>%
+  group_by(toporder, sample) %>% summarise(relab = sum(relab)) %>% ungroup() %>%
+  ggplot(aes(
+    x = fct_relevel(sample, c("Reference","M131415-60" , "M131415-30" ,"M131415-20" , "M131415-10" ,"M101112-60" , "M101112-30" , "M101112-20" , "M101112-10" , "M789-60" , "M789-30" , "M789-20" ,"M789-10" , "M456-60" , "M456-30" , "M456-20" , "M456-10" , "M123-60" , "M123-30" , "M123-20" )), 
+    y = relab, 
+    fill = toporder)) +
+  geom_col() +
+  scale_fill_brewer('order', palette = 'Paired') +
+  coord_flip() +
+  labs( title = "Top 11 Order")+
+  ylab("Relative Abundance")+
+  xlab("Site")+
+  theme(
+    legend.position = 'bottom'
+    
+  )
+```
+```{r}
+ggsave("StackedBar_spoils_Top_11_order_bysites.png", width = 32, height = 21, units = "cm")
+```
+
+```{r plot-top-order by dates and depths}
+asvs %>%
+  inner_join(taxonomy, by = 'seqid') %>%
+  inner_join(sample_meta_data, by = "sample")%>%
+  group_by(toporder,sample, depth, date) %>% summarise(relab = sum(relab)) %>% ungroup() %>%
+  ggplot(aes(
+    y = fct_relevel(date, c("Reference","7/11/2016","2/5/2017","3/8/2017","24/10/2017","9/5/2018")),
+    x = relab,
+    fill = fct_relevel(toporder, c("Other")))) +
+  facet_grid(. ~ depth, scales = "free_x")+
+  geom_col() +
+  scale_fill_brewer('order', palette = 'Paired') +
+  coord_flip() +
+  labs(title = "Order")+
+  xlab("Relative Abundance")+
+  ylab("Date")+
+     theme(legend.position = 'bottom', 
+       panel.background = element_blank(),
+       legend.title = element_blank(),
+       #aspect.ratio = 1,
+       axis.ticks.y = element_blank(),
+       text = element_text(colour = "black"),
+       axis.text.y = element_text(hjust = 1),
+       axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+```
+```{r}
+ggsave("StackedBar_spoils_Top_11_order_split.png", width = 32, height = 21, units = "cm")
+```
+
+###family
+
+```{r assign-top10-family-to-taxonomy}
+# Start by finding the top 11 family *on average* over the samples
+f <- asvs %>%
+  inner_join(taxonomy, by = 'seqid') %>%
+  group_by(family, sample) %>%
+  # Calculate the relative abundance of each family in each sample
+  summarise(relab = sum(relab)) %>%
+  # Calculate the *mean* relative abundance of each family over the samples
+  summarise(mean_relab = sum(relab)) %>%
+  ungroup() %>%
+  # Filter out non-assigned family
+  filter(!is.na(family)) %>%
+  # Select the top 11
+  top_n(11, mean_relab)
+# Add this information to the taxonomy table as the column topfamily
+taxonomy <- taxonomy %>%
+  # Join in the top 10 table. *Important* with left join, otherwise you loose rows in the
+  # taxonomy table that do not appear in the top 11 table.
+  left_join(
+    f %>% 
+      # Duplicate the family column, with the old name and as "topfamily"
+      transmute(family, topfamily = family),
+    by = 'family'
+  ) %>%
+  # Set topfamily to 'Other' for those that were not among the top 11
+  replace_na(list('topfamily' = 'Other'))
+```
+
+```{r plot-top-family}
+asvs %>%
+  inner_join(taxonomy, by = 'seqid') %>%
+  group_by(topfamily, sample) %>% summarise(relab = sum(relab)) %>% ungroup() %>%
+  ggplot(aes(
+    x = fct_relevel(sample, c("Reference","M131415-60" , "M131415-30" ,"M131415-20" , "M131415-10" ,"M101112-60" , "M101112-30" , "M101112-20" , "M101112-10" , "M789-60" , "M789-30" , "M789-20" ,"M789-10" , "M456-60" , "M456-30" , "M456-20" , "M456-10" , "M123-60" , "M123-30" , "M123-20" )), 
+    y = relab, 
+    fill = topfamily)) +
+  geom_col() +
+  scale_fill_brewer('family', palette = 'Paired') +
+  coord_flip() +
+  labs( title = "Top 11 Family")+
+  ylab("Relative Abundance")+
+  xlab("Site")+
+  theme(
+    legend.position = 'bottom'
+    
+  )
+```
+```{r}
+ggsave("StackedBar_spoils_Top_11_family_bysites.png", width = 32, height = 21, units = "cm")
+```
+
+```{r plot-top-family by dates and depths}
+asvs %>%
+  inner_join(taxonomy, by = 'seqid') %>%
+  inner_join(sample_meta_data, by = "sample")%>%
+  group_by(topfamily,sample, depth, date) %>% summarise(relab = sum(relab)) %>% ungroup() %>%
+  ggplot(aes(
+    y = fct_relevel(date, c("Reference","7/11/2016","2/5/2017","3/8/2017","24/10/2017","9/5/2018")),
+    x = relab,
+    fill = fct_relevel(topfamily, c("Other")))) +
+  facet_grid(. ~ depth, scales = "free_x")+
+  geom_col() +
+  scale_fill_brewer('order', palette = 'Paired') +
+  coord_flip() +
+  labs(title = "Family")+
+  xlab("Relative Abundance")+
+  ylab("Date")+
+     theme(legend.position = 'bottom', 
+       panel.background = element_blank(),
+       legend.title = element_blank(),
+       #aspect.ratio = 1,
+       axis.ticks.y = element_blank(),
+       text = element_text(colour = "black"),
+       axis.text.y = element_text(hjust = 1),
+       axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+```
+```{r}
+ggsave("StackedBar_spoils_Top_11_family_split.png", width = 32, height = 21, units = "cm")
+```
+
+### Relab tables
+###reference : : genus, family, order, class, phylum
+
+
+```{r reference genus relab table}
+##calculates relab of reference genus
+asvs %>%
+  inner_join(taxonomy, by = 'seqid')%>%
+  inner_join(sample_meta_data, by = "sample")%>%
+  #change "genus"
+  group_by(sample, topgenus) %>%
+  summarise(relab = sum(relab)) %>% ungroup() %>%
+  mutate(relab = (round(relab, digits = 4)*100))%>%
+  subset( sample == "Reference")%>%
+  rename( "genus reference" = topgenus) ->reference_genus
+
+pdf("genus_reference_relab_table.pdf", height=8, width=12)
+title <- "Reference, Top 12 genus, Relative Abundance, %"
+
+grid::grid.newpage()
+grid::grid.text(title,x = (.5), y = (0.8))
+grid.table(reference_genus) 
+dev.off()
+```
+
+```{r reference phylum relab table}
+##calculates relab of reference phylum
+asvs %>%
+  inner_join(taxonomy, by = 'seqid')%>%
+  inner_join(sample_meta_data, by = "sample")%>%
+  #change "phylum"
+  group_by(sample, topphylum) %>%
+  summarise(relab = sum(relab)) %>% ungroup() %>%
+  mutate(relab = (round(relab, digits = 4)*100))%>%
+  subset( sample == "Reference")%>%
+  rename( "phylum reference" = topphylum) ->reference_phylum
+
+pdf("phylum_reference_relab_table.pdf", height=8, width=12)
+title <- "Reference, Top 12 phylum, Relative Abundance, %"
+
+grid::grid.newpage()
+grid::grid.text(title,x = (.5), y = (0.8))
+grid.table(reference_phylum) 
+dev.off()
+```
+
+```{r reference class relab table}
+##calculates relab of reference class
+asvs %>%
+  inner_join(taxonomy, by = 'seqid')%>%
+  inner_join(sample_meta_data, by = "sample")%>%
+  #change "class"
+  group_by(sample, topclass) %>%
+  summarise(relab = sum(relab)) %>% ungroup() %>%
+  mutate(relab = (round(relab, digits = 4)*100))%>%
+  subset( sample == "Reference")%>%
+  rename( "class reference" = topclass) ->reference_class
+
+pdf("class_reference_relab_table.pdf", height=8, width=12)
+title <- "Reference, Top 12 class, Relative Abundance, %"
+
+grid::grid.newpage()
+grid::grid.text(title,x = (.5), y = (0.8))
+grid.table(reference_class) 
+dev.off()
+```
+
+```{r reference order relab table}
+##calculates relab of reference order
+asvs %>%
+  inner_join(taxonomy, by = 'seqid')%>%
+  inner_join(sample_meta_data, by = "sample")%>%
+  #change "order"
+  group_by(sample, toporder) %>%
+  summarise(relab = sum(relab)) %>% ungroup() %>%
+  mutate(relab = (round(relab, digits = 4)*100))%>%
+  subset( sample == "Reference")%>%
+  rename( "order reference" = toporder) ->reference_order
+
+pdf("order_reference_relab_table.pdf", height=8, width=12)
+title <- "Reference, Top 12 order, Relative Abundance, %"
+
+grid::grid.newpage()
+grid::grid.text(title,x = (.5), y = (0.8))
+grid.table(reference_order) 
+dev.off()
+```
+
+```{r reference family relab table}
+##calculates relab of reference family
+asvs %>%
+  inner_join(taxonomy, by = 'seqid')%>%
+  inner_join(sample_meta_data, by = "sample")%>%
+  #change "family"
+  group_by(sample, topfamily) %>%
+  summarise(relab = sum(relab)) %>% ungroup() %>%
+  mutate(relab = (round(relab, digits = 4)*100))%>%
+  subset( sample == "Reference")%>%
+  rename( "family reference" = topfamily) ->reference_family
+
+pdf("family_reference_relab_table.pdf", height=8, width=12)
+title <- "Reference, Top 12 family, Relative Abundance, %"
+
+grid::grid.newpage()
+grid::grid.text(title,x = (.5), y = (0.8))
+grid.table(reference_family) 
+dev.off()
+```
+
+### Relab tables
+###depths : : genus, family, order, class, phylum
+
+```{r genus relab table}
+##calculates relab of genus
+asvs %>%
+  inner_join(taxonomy, by = 'seqid')%>%
+  inner_join(sample_meta_data, by = "sample")%>%
+  #change "genus"
+  group_by(sample, topgenus, date, depth) %>%
+  summarise(relab = sum(relab)) %>% ungroup() %>%
+  mutate(relab = (round(relab, digits = 4)*100)) ->genus
+
+# splits relabs out into multiple tables, by sample by date and depth eg table 1 is sample 1 on date 1 at depth 1
+genustables<- split (genus, with(genus, interaction(depth, date)), drop = TRUE)
+```
+
+```{r genus relab at 10cm depth}
+#merge separated dates into single table at 10 cm depths
+genus10depth <- genustables[["10.2/5/2017"]] %>%
+  left_join(genustables[["10.3/8/2017"]],by = "topgenus")%>%
+  left_join(genustables[["10.24/10/2017"]],by = "topgenus")%>%
+  left_join(genustables[["10.9/5/2018"]],by = "topgenus")%>%
+  #removes unnecessary depth columns
+  select(-depth.x, -depth.y, -depth.x.x, -depth.y.y)%>%
+  select(-sample.x, -sample.y, -sample.x.x, -sample.y.y)%>%
+  select(-date.x, -date.y, -date.x.x, -date.y.y)%>%
+  #rename columns
+  rename( "genus 10 cm" = topgenus)%>%
+  rename("2/5/2017 relab"= relab.x)%>%
+  rename("3/8/2017 relab"= relab.y)%>%
+  rename("24/10/2017 relab"= relab.x.x)%>%
+  rename("9/5/2018 relab"= relab.y.y)
+  
+pdf("genus_10cm_relab_table.pdf", height=8, width=12)
+title <- "Overall, 10cm, Top 12 genus, Relative Abundance, %"
+
+grid::grid.newpage()
+grid::grid.text(title,x = (.5), y = (0.9))
+grid.table(genus10depth) 
+dev.off()
+```
+
+```{r genus relab table at 20 cm depths}
+#merge separated dates into single table at 20 cm depths
+genus20depth <- genustables[["20.7/11/2016"]]%>%
+  left_join(genustables[["20.2/5/2017"]],by = "topgenus")%>%
+  left_join(genustables[["20.3/8/2017"]],by = "topgenus")%>%
+  left_join(genustables[["20.24/10/2017"]],by = "topgenus")%>%
+  left_join(genustables[["20.9/5/2018"]],by = "topgenus")%>%
+  
+  #removes unnecessary depth columns
+  select(-depth.x, -depth.y, -depth.x.x, -depth.y.y,-depth)%>%
+  select(-sample.x, -sample.y, -sample.x.x, -sample.y.y, -sample)%>%
+  select(-date.x, -date.y, -date.x.x, -date.y.y, -date)%>%
+  
+  #rename columns
+  rename( "genus 20 cm" = topgenus)%>%
+  rename( "7/11/2016 relab" = relab.x)%>%
+  rename("2/5/2017 relab"= relab.y)%>%
+  rename("3/8/2017 relab"= relab.x.x)%>%
+  rename("24/10/2017 relab"= relab.y.y)%>%
+  rename("9/5/2018 relab"= relab)
+  
+pdf("genus_20cm_relab_table.pdf", height=8, width=12)
+title <- "Overall, 20cm, Top 11 genus, Relative Abundance, %"
+
+grid::grid.newpage()
+grid::grid.text(title,x = (.5), y = (0.8))
+grid.table(genus20depth) 
+dev.off()
+```
+
+```{r genus relab table at 30 cm depths}
+#merge separated dates into single table at 30 cm depths
+genus30depth <- genustables[["30.7/11/2016"]]%>%
+  left_join(genustables[["30.2/5/2017"]],by = "topgenus")%>%
+  left_join(genustables[["30.3/8/2017"]],by = "topgenus")%>%
+  left_join(genustables[["30.24/10/2017"]],by = "topgenus")%>%
+  left_join(genustables[["30.9/5/2018"]],by = "topgenus")%>%
+  
+  #removes unnecessary depth columns
+  select(-depth.x, -depth.y, -depth.x.x, -depth.y.y,-depth)%>%
+  select(-sample.x, -sample.y, -sample.x.x, -sample.y.y, -sample)%>%
+  select(-date.x, -date.y, -date.x.x, -date.y.y, -date)%>%
+  
+  #rename columns
+  rename( "genus 30 cm" = topgenus)%>%
+  rename( "7/11/2016 relab" = relab.x)%>%
+  rename("2/5/2017 relab"= relab.y)%>%
+  rename("3/8/2017 relab"= relab.x.x)%>%
+  rename("24/10/2017 relab"= relab.y.y)%>%
+  rename("9/5/2018 relab"= relab)
+
+pdf("genus_30cm_relab_table.pdf", height=8, width=12)
+title <- "Overall, 30cm, Top 11 genus, Relative Abundance, %"
+
+grid::grid.newpage()
+grid::grid.text(title,x = (.5), y = (.8))
+grid.table(genus30depth) 
+dev.off()
+```
+
+```{r genus relab table at 60 cm depths}
+#merge separated dates into single table at 60 cm depths
+genus60depth <- genustables[["30.7/11/2016"]]%>%
+  left_join(genustables[["60.2/5/2017"]],by = "topgenus")%>%
+  left_join(genustables[["60.3/8/2017"]],by = "topgenus")%>%
+  left_join(genustables[["60.24/10/2017"]],by = "topgenus")%>%
+  left_join(genustables[["60.9/5/2018"]],by = "topgenus")%>%
+  
+  #removes unnecessary depth columns
+  select(-depth.x, -depth.y, -depth.x.x, -depth.y.y,-depth)%>%
+  select(-sample.x, -sample.y, -sample.x.x, -sample.y.y, -sample)%>%
+  select(-date.x, -date.y, -date.x.x, -date.y.y, -date)%>%
+  
+  #rename columns
+  rename( "genus 60 cm" = topgenus)%>%
+  rename( "7/11/2016 relab" = relab.x)%>%
+  rename("2/5/2017 relab"= relab.y)%>%
+  rename("3/8/2017 relab"= relab.x.x)%>%
+  rename("24/10/2017 relab"= relab.y.y)%>%
+  rename("9/5/2018 relab"= relab)
+
+pdf("genus_60cm_relab_table.pdf", height=8, width=12)
+title <- "Overall, 60cm, Top 11 genus, Relative Abundance, %"
+
+grid::grid.newpage()
+grid::grid.text(title,x = (.5), y = (.8))
+grid.table(genus60depth) 
+dev.off()
+```
+
+```{r family relab tables}
+##calculates relab of family, by date, and depth, each date and depth = 1 
+asvs %>%
+  inner_join(taxonomy, by = 'seqid')%>%
+  inner_join(sample_meta_data, by = "sample")%>%
+  #change "family"
+  group_by(sample, topfamily, date, depth) %>%
+  summarise(relab = sum(relab)) %>% ungroup()%>%
+  mutate(relab = (round(relab, digits = 4)*100)) ->family
+
+# splits relabs out into multiple tables, by sample by date and depth eg table 1 is sample 1 on date 1 at depth 1
+familytables<- split (family, with(family, interaction(depth, date)), drop = TRUE)
+```
+
+```{r family relab at 10cm depth}
+#merge separated dates into single table at 10 cm depths
+family10depth <- familytables[["10.2/5/2017"]] %>%
+  left_join(familytables[["10.3/8/2017"]],by = "topfamily")%>%
+  left_join(familytables[["10.24/10/2017"]],by = "topfamily")%>%
+  left_join(familytables[["10.9/5/2018"]],by = "topfamily")%>%
+  #removes unnecessary depth columns
+  select(-depth.x, -depth.y, -depth.x.x, -depth.y.y)%>%
+  select(-sample.x, -sample.y, -sample.x.x, -sample.y.y)%>%
+  select(-date.x, -date.y, -date.x.x, -date.y.y)%>%
+  #rename columns
+  rename( "Family 10 cm" = topfamily)%>%
+  rename("2/5/2017 relab"= relab.x)%>%
+  rename("3/8/2017 relab"= relab.y)%>%
+  rename("24/10/2017 relab"= relab.x.x)%>%
+  rename("9/5/2018 relab"= relab.y.y)
+  
+pdf("family_10cm_relab_table.pdf", height=8, width=12)
+title <- "Overall, 10cm, Top 11 Family, Relative Abundance, %"
+
+grid::grid.newpage()
+grid::grid.text(title,x = (.5), y = (0.9))
+grid.table(family10depth) 
+dev.off()
+```
+
+```{r family relab table at 20 cm depths}
+#merge separated dates into single table at 20 cm depths
+family20depth <- familytables[["20.7/11/2016"]]%>%
+  left_join(familytables[["20.2/5/2017"]],by = "topfamily")%>%
+  left_join(familytables[["20.3/8/2017"]],by = "topfamily")%>%
+  left_join(familytables[["20.24/10/2017"]],by = "topfamily")%>%
+  left_join(familytables[["20.9/5/2018"]],by = "topfamily")%>%
+  
+  #removes unnecessary depth columns
+  select(-depth.x, -depth.y, -depth.x.x, -depth.y.y,-depth)%>%
+  select(-sample.x, -sample.y, -sample.x.x, -sample.y.y, -sample)%>%
+  select(-date.x, -date.y, -date.x.x, -date.y.y, -date)%>%
+  
+  #rename columns
+  rename( "Family 20 cm" = topfamily)%>%
+  rename( "7/11/2016 relab" = relab.x)%>%
+  rename("2/5/2017 relab"= relab.y)%>%
+  rename("3/8/2017 relab"= relab.x.x)%>%
+  rename("24/10/2017 relab"= relab.y.y)%>%
+  rename("9/5/2018 relab"= relab)
+  
+pdf("family_20cm_relab_table.pdf", height=8, width=12)
+title <- "Overall, 20cm, Top 11 Family, Relative Abundance, %"
+
+grid::grid.newpage()
+grid::grid.text(title,x = (.5), y = (0.8))
+grid.table(family20depth) 
+dev.off()
+```
+
+```{r family relab table at 30 cm depths}
+#merge separated dates into single table at 30 cm depths
+family30depth <- familytables[["30.7/11/2016"]]%>%
+  left_join(familytables[["30.2/5/2017"]],by = "topfamily")%>%
+  left_join(familytables[["30.3/8/2017"]],by = "topfamily")%>%
+  left_join(familytables[["30.24/10/2017"]],by = "topfamily")%>%
+  left_join(familytables[["30.9/5/2018"]],by = "topfamily")%>%
+  
+  #removes unnecessary depth columns
+  select(-depth.x, -depth.y, -depth.x.x, -depth.y.y,-depth)%>%
+  select(-sample.x, -sample.y, -sample.x.x, -sample.y.y, -sample)%>%
+  select(-date.x, -date.y, -date.x.x, -date.y.y, -date)%>%
+  
+  #rename columns
+  rename( "Family 30 cm" = topfamily)%>%
+  rename( "7/11/2016 relab" = relab.x)%>%
+  rename("2/5/2017 relab"= relab.y)%>%
+  rename("3/8/2017 relab"= relab.x.x)%>%
+  rename("24/10/2017 relab"= relab.y.y)%>%
+  rename("9/5/2018 relab"= relab)
+
+pdf("family_30cm_relab_table.pdf", height=8, width=12)
+title <- "Overall, 30cm, Top 11 Family, Relative Abundance, %"
+
+grid::grid.newpage()
+grid::grid.text(title,x = (.5), y = (.8))
+grid.table(family30depth) 
+dev.off()
+```
+
+```{r family relab table at 60 cm depths}
+#merge separated dates into single table at 60 cm depths
+family60depth <- familytables[["30.7/11/2016"]]%>%
+  left_join(familytables[["60.2/5/2017"]],by = "topfamily")%>%
+  left_join(familytables[["60.3/8/2017"]],by = "topfamily")%>%
+  left_join(familytables[["60.24/10/2017"]],by = "topfamily")%>%
+  left_join(familytables[["60.9/5/2018"]],by = "topfamily")%>%
+  
+  #removes unnecessary depth columns
+  select(-depth.x, -depth.y, -depth.x.x, -depth.y.y,-depth)%>%
+  select(-sample.x, -sample.y, -sample.x.x, -sample.y.y, -sample)%>%
+  select(-date.x, -date.y, -date.x.x, -date.y.y, -date)%>%
+  
+  #rename columns
+  rename( "Family 60 cm" = topfamily)%>%
+  rename( "7/11/2016 relab" = relab.x)%>%
+  rename("2/5/2017 relab"= relab.y)%>%
+  rename("3/8/2017 relab"= relab.x.x)%>%
+  rename("24/10/2017 relab"= relab.y.y)%>%
+  rename("9/5/2018 relab"= relab)
+
+pdf("family_60cm_relab_table.pdf", height=8, width=12)
+title <- "Overall, 60cm, Top 11 Family, Relative Abundance, %"
+
+grid::grid.newpage()
+grid::grid.text(title,x = (.5), y = (.8))
+grid.table(family60depth) 
+dev.off()
+```
+
+```{r order relab tables}
+##calculates relab of order, by date, and depth, each date and depth = 1 
+asvs %>%
+  inner_join(taxonomy, by = 'seqid')%>%
+  inner_join(sample_meta_data, by = "sample")%>%
+  #change "order"
+  group_by(sample, toporder, date, depth) %>%
+  summarise(relab = sum(relab)) %>% ungroup() %>%
+  mutate(relab = (round(relab, digits = 4)*100)) ->order
+
+# splits relabs out into multiple tables, by sample by date and depth eg table 1 is sample 1 on date 1 at depth 1
+ordertables<- split (order, with(order, interaction(depth, date)), drop = TRUE)
+```
+
+```{r order relab at 10cm depth}
+#merge separated dates into single table at 10 cm depths
+order10depth <- ordertables[["10.2/5/2017"]] %>%
+  left_join(ordertables[["10.3/8/2017"]],by = "toporder")%>%
+  left_join(ordertables[["10.24/10/2017"]],by = "toporder")%>%
+  left_join(ordertables[["10.9/5/2018"]],by = "toporder")%>%
+  #removes unnecessary depth columns
+  select(-depth.x, -depth.y, -depth.x.x, -depth.y.y)%>%
+  select(-sample.x, -sample.y, -sample.x.x, -sample.y.y)%>%
+  select(-date.x, -date.y, -date.x.x, -date.y.y)%>%
+  #rename columns
+  rename( "order 10 cm" = toporder)%>%
+  rename("2/5/2017 relab"= relab.x)%>%
+  rename("3/8/2017 relab"= relab.y)%>%
+  rename("24/10/2017 relab"= relab.x.x)%>%
+  rename("9/5/2018 relab"= relab.y.y)
+  
+pdf("order_10cm_relab_table.pdf", height=8, width=12)
+title <- "Overall, 10cm, Top 11 order, Relative Abundance, %"
+
+grid::grid.newpage()
+grid::grid.text(title,x = (.5), y = (0.9))
+grid.table(order10depth) 
+dev.off()
+```
+
+```{r order relab table at 20 cm depths}
+#merge separated dates into single table at 20 cm depths
+genuordertables0depth <- ordertables[["20.7/11/2016"]]%>%
+  left_join(ordertables[["20.2/5/2017"]],by = "toporder")%>%
+  left_join(ordertables[["20.3/8/2017"]],by = "toporder")%>%
+  left_join(ordertables[["20.24/10/2017"]],by = "toporder")%>%
+  left_join(ordertables[["20.9/5/2018"]],by = "toporder")%>%
+  
+  #removes unnecessary depth columns
+  select(-depth.x, -depth.y, -depth.x.x, -depth.y.y,-depth)%>%
+  select(-sample.x, -sample.y, -sample.x.x, -sample.y.y, -sample)%>%
+  select(-date.x, -date.y, -date.x.x, -date.y.y, -date)%>%
+  
+  #rename columns
+  rename( "order 20 cm" = toporder)%>%
+  rename( "7/11/2016 relab" = relab.x)%>%
+  rename("2/5/2017 relab"= relab.y)%>%
+  rename("3/8/2017 relab"= relab.x.x)%>%
+  rename("24/10/2017 relab"= relab.y.y)%>%
+  rename("9/5/2018 relab"= relab)
+  
+pdf("order_20cm_relab_table.pdf", height=8, width=12)
+title <- "Overall, 20cm, Top 11 order, Relative Abundance, %"
+
+grid::grid.newpage()
+grid::grid.text(title,x = (.5), y = (0.8))
+grid.table(genuordertables0depth) 
+dev.off()
+```
+
+```{r order relab table at 30 cm depths}
+#merge separated dates into single table at 30 cm depths
+order30depth <- ordertables[["30.7/11/2016"]]%>%
+  left_join(ordertables[["30.2/5/2017"]],by = "toporder")%>%
+  left_join(ordertables[["30.3/8/2017"]],by = "toporder")%>%
+  left_join(ordertables[["30.24/10/2017"]],by = "toporder")%>%
+  left_join(ordertables[["30.9/5/2018"]],by = "toporder")%>%
+  
+  #removes unnecessary depth columns
+  select(-depth.x, -depth.y, -depth.x.x, -depth.y.y,-depth)%>%
+  select(-sample.x, -sample.y, -sample.x.x, -sample.y.y, -sample)%>%
+  select(-date.x, -date.y, -date.x.x, -date.y.y, -date)%>%
+  
+  #rename columns
+  rename( "order 30 cm" = toporder)%>%
+  rename( "7/11/2016 relab" = relab.x)%>%
+  rename("2/5/2017 relab"= relab.y)%>%
+  rename("3/8/2017 relab"= relab.x.x)%>%
+  rename("24/10/2017 relab"= relab.y.y)%>%
+  rename("9/5/2018 relab"= relab)
+
+pdf("order_30cm_relab_table.pdf", height=8, width=12)
+title <- "Overall, 30cm, Top 11 order, Relative Abundance,%"
+
+grid::grid.newpage()
+grid::grid.text(title,x = (.5), y = (.8))
+grid.table(order30depth) 
+dev.off()
+
+```
+
+```{r order relab table at 60 cm depths}
+#merge separated dates into single table at 60 cm depths
+order60depth <- ordertables[["30.7/11/2016"]]%>%
+  left_join(ordertables[["60.2/5/2017"]],by = "toporder")%>%
+  left_join(ordertables[["60.3/8/2017"]],by = "toporder")%>%
+  left_join(ordertables[["60.24/10/2017"]],by = "toporder")%>%
+  left_join(ordertables[["60.9/5/2018"]],by = "toporder")%>%
+  
+  #removes unnecessary depth columns
+  select(-depth.x, -depth.y, -depth.x.x, -depth.y.y,-depth)%>%
+  select(-sample.x, -sample.y, -sample.x.x, -sample.y.y, -sample)%>%
+  select(-date.x, -date.y, -date.x.x, -date.y.y, -date)%>%
+  
+  #rename columns
+  rename( "order 60 cm" = toporder)%>%
+  rename( "7/11/2016 relab" = relab.x)%>%
+  rename("2/5/2017 relab"= relab.y)%>%
+  rename("3/8/2017 relab"= relab.x.x)%>%
+  rename("24/10/2017 relab"= relab.y.y)%>%
+  rename("9/5/2018 relab"= relab)
+
+pdf("order_60cm_relab_table.pdf", height=8, width=12)
+title <- "Overall, 60cm, Top 11 order, Relative Abundance, %"
+
+grid::grid.newpage()
+grid::grid.text(title,x = (.5), y = (.8))
+grid.table(order60depth) 
+dev.off()
+```
+
+```{r class relab tables}
+##calculates relab of class, by date, and depth, each date and depth = 1 
+asvs %>%
+  inner_join(taxonomy, by = 'seqid')%>%
+  inner_join(sample_meta_data, by = "sample")%>%
+  #change "class"
+  group_by(sample, topclass, date, depth) %>%
+  summarise(relab = sum(relab)) %>% ungroup()%>%
+  mutate(relab = (round(relab, digits = 4)*100)) ->class
+
+# splits relabs out into multiple tables, by sample by date and depth eg table 1 is sample 1 on date 1 at depth 1
+classtables<- split (class, with(class, interaction(depth, date)), drop = TRUE)
+```
+
+```{r class relab at 10cm depth}
+#merge separated dates into single table at 10 cm depths
+class10depth <- classtables[["10.2/5/2017"]] %>%
+  left_join(classtables[["10.3/8/2017"]],by = "topclass")%>%
+  left_join(classtables[["10.24/10/2017"]],by = "topclass")%>%
+  left_join(classtables[["10.9/5/2018"]],by = "topclass")%>%
+  #removes unnecessary depth columns
+  select(-depth.x, -depth.y, -depth.x.x, -depth.y.y)%>%
+  select(-sample.x, -sample.y, -sample.x.x, -sample.y.y)%>%
+  select(-date.x, -date.y, -date.x.x, -date.y.y)%>%
+  #rename columns
+  rename( "class 10 cm" = topclass)%>%
+  rename("2/5/2017 relab"= relab.x)%>%
+  rename("3/8/2017 relab"= relab.y)%>%
+  rename("24/10/2017 relab"= relab.x.x)%>%
+  rename("9/5/2018 relab"= relab.y.y)
+  
+pdf("class_10cm_relab_table.pdf", height=8, width=12)
+title <- "Overall, 10cm, Top 11 class, Relative Abundance,%"
+
+grid::grid.newpage()
+grid::grid.text(title,x = (.5), y = (0.9))
+grid.table(class10depth) 
+dev.off()
+```
+
+```{r class relab table at 20 cm depths}
+
+#merge separated dates into single table at 20 cm depths
+genuclasstables0depth <- classtables[["20.7/11/2016"]]%>%
+  left_join(classtables[["20.2/5/2017"]],by = "topclass")%>%
+  left_join(classtables[["20.3/8/2017"]],by = "topclass")%>%
+  left_join(classtables[["20.24/10/2017"]],by = "topclass")%>%
+  left_join(classtables[["20.9/5/2018"]],by = "topclass")%>%
+  
+  #removes unnecessary depth columns
+  select(-depth.x, -depth.y, -depth.x.x, -depth.y.y,-depth)%>%
+  select(-sample.x, -sample.y, -sample.x.x, -sample.y.y, -sample)%>%
+  select(-date.x, -date.y, -date.x.x, -date.y.y, -date)%>%
+  
+  #rename columns
+  rename( "class 20 cm" = topclass)%>%
+  rename( "7/11/2016 relab" = relab.x)%>%
+  rename("2/5/2017 relab"= relab.y)%>%
+  rename("3/8/2017 relab"= relab.x.x)%>%
+  rename("24/10/2017 relab"= relab.y.y)%>%
+  rename("9/5/2018 relab"= relab)
+  
+pdf("class_20cm_relab_table.pdf", height=8, width=12)
+title <- "Overall, 20cm, Top 11 class, Relative Abundance, %"
+
+grid::grid.newpage()
+grid::grid.text(title,x = (.5), y = (0.8))
+grid.table(genuclasstables0depth) 
+dev.off()
+
+```
+
+```{r class relab table at 30 cm depths}
+
+#merge separated dates into single table at 30 cm depths
+class30depth <- classtables[["30.7/11/2016"]]%>%
+  left_join(classtables[["30.2/5/2017"]],by = "topclass")%>%
+  left_join(classtables[["30.3/8/2017"]],by = "topclass")%>%
+  left_join(classtables[["30.24/10/2017"]],by = "topclass")%>%
+  left_join(classtables[["30.9/5/2018"]],by = "topclass")%>%
+  
+  #removes unnecessary depth columns
+  select(-depth.x, -depth.y, -depth.x.x, -depth.y.y,-depth)%>%
+  select(-sample.x, -sample.y, -sample.x.x, -sample.y.y, -sample)%>%
+  select(-date.x, -date.y, -date.x.x, -date.y.y, -date)%>%
+  
+  #rename columns
+  rename( "class 30 cm" = topclass)%>%
+  rename( "7/11/2016 relab" = relab.x)%>%
+  rename("2/5/2017 relab"= relab.y)%>%
+  rename("3/8/2017 relab"= relab.x.x)%>%
+  rename("24/10/2017 relab"= relab.y.y)%>%
+  rename("9/5/2018 relab"= relab)
+
+pdf("class_30cm_relab_table.pdf", height=8, width=12)
+title <- "Overall, 30cm, Top 11 class, Relative Abundance,%"
+
+grid::grid.newpage()
+grid::grid.text(title,x = (.5), y = (.8))
+grid.table(class30depth) 
+dev.off()
+
+```
+
+```{r class relab table at 60 cm depths}
+
+#merge separated dates into single table at 60 cm depths
+class60depth <- classtables[["30.7/11/2016"]]%>%
+  left_join(classtables[["60.2/5/2017"]],by = "topclass")%>%
+  left_join(classtables[["60.3/8/2017"]],by = "topclass")%>%
+  left_join(classtables[["60.24/10/2017"]],by = "topclass")%>%
+  left_join(classtables[["60.9/5/2018"]],by = "topclass")%>%
+  
+  #removes unnecessary depth columns
+  select(-depth.x, -depth.y, -depth.x.x, -depth.y.y,-depth)%>%
+  select(-sample.x, -sample.y, -sample.x.x, -sample.y.y, -sample)%>%
+  select(-date.x, -date.y, -date.x.x, -date.y.y, -date)%>%
+  
+  #rename columns
+  rename( "class 60 cm" = topclass)%>%
+  rename( "7/11/2016 relab" = relab.x)%>%
+  rename("2/5/2017 relab"= relab.y)%>%
+  rename("3/8/2017 relab"= relab.x.x)%>%
+  rename("24/10/2017 relab"= relab.y.y)%>%
+  rename("9/5/2018 relab"= relab)
+
+pdf("class_60cm_relab_table.pdf", height=8, width=12)
+title <- "Overall, 60cm, Top 11 class, Relative Abundance,%"
+
+grid::grid.newpage()
+grid::grid.text(title,x = (.5), y = (.8))
+grid.table(class60depth) 
+dev.off()
+
+```
+
+```{r phylum relab tables}
+##calculates relab of phylum, by date, and depth, each date and depth = 1 
+asvs %>%
+  inner_join(taxonomy, by = 'seqid')%>%
+  inner_join(sample_meta_data, by = "sample")%>%
+  #change "phylum"
+  group_by(sample, topphylum, date, depth) %>%
+  summarise(relab = sum(relab)) %>% ungroup() %>%
+  mutate(relab = (round(relab, digits = 4)*100)) ->phylum
+
+# splits relabs out into multiple tables, by sample by date and depth eg table 1 is sample 1 on date 1 at depth 1
+phylumtables<- split (phylum, with(phylum, interaction(depth, date)), drop = TRUE)
+```
+
+```{r phylum relab at 10cm depth}
+#merge separated dates into single table at 10 cm depths
+phylum10depth <- phylumtables[["10.2/5/2017"]] %>%
+  left_join(phylumtables[["10.3/8/2017"]],by = "topphylum")%>%
+  left_join(phylumtables[["10.24/10/2017"]],by = "topphylum")%>%
+  left_join(phylumtables[["10.9/5/2018"]],by = "topphylum")%>%
+  #removes unnecessary depth columns
+  select(-depth.x, -depth.y, -depth.x.x, -depth.y.y)%>%
+  select(-sample.x, -sample.y, -sample.x.x, -sample.y.y)%>%
+  select(-date.x, -date.y, -date.x.x, -date.y.y)%>%
+  #rename columns
+  rename( "phylum 10 cm" = topphylum)%>%
+  rename("2/5/2017 relab"= relab.x)%>%
+  rename("3/8/2017 relab"= relab.y)%>%
+  rename("24/10/2017 relab"= relab.x.x)%>%
+  rename("9/5/2018 relab"= relab.y.y)
+  
+pdf("phylum_10cm_relab_table.pdf", height=8, width=12)
+title <- "Overall, 10cm, Top 11 phylum, Relative Abundance, %"
+
+grid::grid.newpage()
+grid::grid.text(title,x = (.5), y = (0.9))
+grid.table(phylum10depth) 
+dev.off()
+```
+
+```{r phylum relab table at 20 cm depths}
+
+#merge separated dates into single table at 20 cm depths
+genuphylumtables0depth <- phylumtables[["20.7/11/2016"]]%>%
+  left_join(phylumtables[["20.2/5/2017"]],by = "topphylum")%>%
+  left_join(phylumtables[["20.3/8/2017"]],by = "topphylum")%>%
+  left_join(phylumtables[["20.24/10/2017"]],by = "topphylum")%>%
+  left_join(phylumtables[["20.9/5/2018"]],by = "topphylum")%>%
+  
+  #removes unnecessary depth columns
+  select(-depth.x, -depth.y, -depth.x.x, -depth.y.y,-depth)%>%
+  select(-sample.x, -sample.y, -sample.x.x, -sample.y.y, -sample)%>%
+  select(-date.x, -date.y, -date.x.x, -date.y.y, -date)%>%
+  
+  #rename columns
+  rename( "phylum 20 cm" = topphylum)%>%
+  rename( "7/11/2016 relab" = relab.x)%>%
+  rename("2/5/2017 relab"= relab.y)%>%
+  rename("3/8/2017 relab"= relab.x.x)%>%
+  rename("24/10/2017 relab"= relab.y.y)%>%
+  rename("9/5/2018 relab"= relab)
+  
+pdf("phylum_20cm_relab_table.pdf", height=8, width=12)
+title <- "Overall, 20cm, Top 11 phylum, Relative Abundance, %"
+
+grid::grid.newpage()
+grid::grid.text(title,x = (.5), y = (0.8))
+grid.table(genuphylumtables0depth) 
+dev.off()
+```
+
+```{r phylum relab table at 30 cm depths}
+
+#merge separated dates into single table at 30 cm depths
+phylum30depth <- phylumtables[["30.7/11/2016"]]%>%
+  left_join(phylumtables[["30.2/5/2017"]],by = "topphylum")%>%
+  left_join(phylumtables[["30.3/8/2017"]],by = "topphylum")%>%
+  left_join(phylumtables[["30.24/10/2017"]],by = "topphylum")%>%
+  left_join(phylumtables[["30.9/5/2018"]],by = "topphylum")%>%
+  
+  #removes unnecessary depth columns
+  select(-depth.x, -depth.y, -depth.x.x, -depth.y.y,-depth)%>%
+  select(-sample.x, -sample.y, -sample.x.x, -sample.y.y, -sample)%>%
+  select(-date.x, -date.y, -date.x.x, -date.y.y, -date)%>%
+  
+  #rename columns
+  rename( "phylum 30 cm" = topphylum)%>%
+  rename( "7/11/2016 relab" = relab.x)%>%
+  rename("2/5/2017 relab"= relab.y)%>%
+  rename("3/8/2017 relab"= relab.x.x)%>%
+  rename("24/10/2017 relab"= relab.y.y)%>%
+  rename("9/5/2018 relab"= relab)
+
+pdf("phylum_30cm_relab_table.pdf", height=8, width=12)
+title <- "Overall, 30cm, Top 11 phylum, Relative Abundance, %"
+
+grid::grid.newpage()
+grid::grid.text(title,x = (.5), y = (.8))
+grid.table(phylum30depth) 
+dev.off()
+```
+
+```{r phylum relab table at 60 cm depths}
+
+#merge separated dates into single table at 60 cm depths
+phylum60depth <- phylumtables[["30.7/11/2016"]]%>%
+  left_join(phylumtables[["60.2/5/2017"]],by = "topphylum")%>%
+  left_join(phylumtables[["60.3/8/2017"]],by = "topphylum")%>%
+  left_join(phylumtables[["60.24/10/2017"]],by = "topphylum")%>%
+  left_join(phylumtables[["60.9/5/2018"]],by = "topphylum")%>%
+  
+  #removes unnecessary depth columns
+  select(-depth.x, -depth.y, -depth.x.x, -depth.y.y,-depth)%>%
+  select(-sample.x, -sample.y, -sample.x.x, -sample.y.y, -sample)%>%
+  select(-date.x, -date.y, -date.x.x, -date.y.y, -date)%>%
+  
+  #rename columns
+  rename( "phylum 60 cm" = topphylum)%>%
+  rename( "7/11/2016 relab" = relab.x)%>%
+  rename("2/5/2017 relab"= relab.y)%>%
+  rename("3/8/2017 relab"= relab.x.x)%>%
+  rename("24/10/2017 relab"= relab.y.y)%>%
+  rename("9/5/2018 relab"= relab)
+
+pdf("phylum_60cm_relab_table.pdf", height=8, width=12)
+title <- "Overall, 60cm, Top 11 phylum, Relative Abundance, %"
+
+grid::grid.newpage()
+grid::grid.text(title,x = (.5), y = (.8))
+grid.table(phylum60depth) 
+dev.off()
+```
+
+###diversity
+
+````{r prep for diversity stats, asbio}
+
+## sample metadata
+samples_df <- sample_meta_data
+
+## OTUs data
+otu_mat<- feature_table
+
+### tax data 
+tax_mat<- taxonomy
+```
+
+```{r give rownames to objects}
+
+### objects need to have row names 
+otu_mat <- otu_mat %>%
+    tibble::column_to_rownames("seqid") 
+
+tax_mat <- tax_mat %>% 
+    tibble::column_to_rownames("seqid")
+
+ samples_df <- samples_df %>% 
+    tibble::column_to_rownames("sample") 
+
+```
+
+```{r convert to matrices}
+###convert tax and otu to matrices 
+otu_mat <- as.matrix(otu_mat)
+tax_mat <- as.matrix(tax_mat)
+
+```
+
+```{r}
+## data is T_otu_mat
+#transpose otu matrix so that sites are rows and species are in columns
+T_otu_mat<-t(otu_mat)
+
+trans_otu_mat<-T_otu_mat
+
+trans_otu_mat<-data.frame(sample= row.names(trans_otu_mat), trans_otu_mat)
+```
+
+### calculate alpha diversity
+
+```{r}
+# Shannon's H'
+H<-diversity(T_otu_mat)
+
+# Observed Richness
+richness<-specnumber(T_otu_mat)
+
+# Pielou's Evenness
+evenness<- H/log(richness)
+
+# Create alpha diversity dataframe including environmental data
+alpha <- cbind(shannon = H, richness = richness, pielou = evenness, sample_meta_data)%>%
+  select(-sample)
+
+head(alpha)
+
+```
+
+### compare pairwise dissimilarity, all sites
+```{r}
+repl_spoils.mdf<- T_otu_mat
+
+spoils.bray<- vegdist(repl_spoils.mdf, method = "bray")
+
+spoils.bray
+
+```
+###PCOA
+```{r}
+# calculate principal coordinates analysis (Bray-Curtis)
+pcoa.spoils.bray <- cmdscale(spoils.bray, k = 2, eig = T)
+
+# extract axis positions for each site from cmdscale object and create a dataframe for plotting
+pcoa.spoils.bray.plotting <- as.data.frame(pcoa.spoils.bray$points)
+colnames(pcoa.spoils.bray.plotting) <- c("axis_1", "axis_2")
+pcoa.spoils.bray.plotting$site <- rownames(pcoa.spoils.bray.plotting)
+
+pcoa.spoils.bray.plotting<-cbind(pcoa.spoils.bray.plotting, sample_meta_data)%>%
+  select (axis_1, axis_2, site, date, depth, ph)
+
+# calculate the proportion of variance in the data which is explained by the first two PCoA axes
+pcoa.spoils.bray$eig[1]/(sum(pcoa.spoils.bray$eig))
+# resulting value is the Xlab 
+```
+```{r}
+pcoa.spoils.bray$eig[2]/(sum(pcoa.spoils.bray$eig))
+#resulting value is the ylab 
+```
+
+```{r, plot build for publication, pca diversity indices}
+
+# create a PCoA plot
+pcoa.spoils.bray.plot <- ggplot(pcoa.spoils.bray.plotting, aes(x = axis_1, y = axis_2)) +
+  geom_point(aes(colour = depth), size= 1.5) +
+  geom_label_repel(aes(label = date, element_text = 5),
+                  box.padding   = 0.35,
+                  point.padding = 0.5,
+                  segment.color = 'grey50') +
+  scale_colour_viridis_d(option = "magma", begin = 0.2, end = 0.8) +
+  theme_bw() + 
+  theme(plot.title =element_text(size= 5),
+        axis.text = element_text(size= 5),)+
+    labs(title = "")+
+  xlab("PCA 1 (25.9%)") + #change these as required
+  ylab("PCA 2 (18.7%)") + #change these as required
+    annotate(geom = 'text', label = 'Bray-Curtis', x = -.35, y = .45, hjust = .8, vjust = -1)
+
+
+plot.shan <- ggplot(alpha, aes(x = fct_relevel(date,c("Reference","7/11/2016","2/5/2017","3/8/2017","24/10/2017","9/5/2018")), y = shannon, colour = depth)) +
+  geom_point(size = 1.5) +
+  scale_colour_viridis_d(option = "magma", begin = 0.2, end = 0.8) +
+  labs(title = "Shannon's H'")+
+  ylab("") + 
+  xlab("") +
+  theme_bw() +
+  theme(plot.title =element_text(size= 5),
+        axis.text = element_text(size= 5),
+        axis.text.x = element_text(angle = 90, hjust = .5, vjust = 1))
+
+plot.rich <-ggplot(alpha, aes(x = fct_relevel(date,c("Reference","7/11/2016","2/5/2017","3/8/2017","24/10/2017","9/5/2018")), y = richness, colour = depth)) +
+  geom_point(size = 1.5) +
+  scale_colour_viridis_d(option = "magma", begin = 0.2, end = 0.8) +
+  labs( title = "Species Richness")+
+  ylab("") +
+  xlab("") +
+  theme_bw() +
+  theme(plot.title =element_text(size= 5),
+        axis.text = element_text(size= 5),
+        axis.text.x = element_text(angle = 90, hjust = .5, vjust = 1))
+
+plot.even <- ggplot(alpha, aes(x = fct_relevel(date,c("Reference","7/11/2016","2/5/2017","3/8/2017","24/10/2017","9/5/2018")), y = evenness, colour = depth)) +
+  geom_point(size = 1.5) +
+  scale_colour_viridis_d(option = "magma", begin = 0.2, end = 0.8) +
+  labs(title = "Pielou's Evenness")+
+  ylab("") +
+  xlab("") +
+  theme_bw() +
+  theme(plot.title =element_text(size= 5),
+        axis.text = element_text(size= 5),
+        axis.text.x = element_text(angle = 90, hjust = .5, vjust = 1))
+
+ph.reg <- ggplot(alpha, aes(
+  x = fct_relevel(date,c("Reference","7/11/2016","2/5/2017","3/8/2017","24/10/2017","9/5/2018")), 
+  y = ph, 
+  colour = depth, 
+  scales = "free_x")) +
+  geom_smooth(method = "lm", colour = "black") +
+  geom_point(size = 1.5) +
+  scale_colour_viridis_d(option = "magma", begin = 0.2, end = 0.8) +
+  labs(title= "pH")+
+  ylab("") +
+  xlab("") + 
+  theme_bw()+
+  theme(plot.title =element_text(size= 5),
+        axis.text = element_text(size= 5),
+        axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+
+
+diversity_plots<- grid.arrange (pcoa.spoils.bray.plot + theme(legend.position = 'bottom'),
+              arrangeGrob(plot.shan + theme(legend.position = "none"),
+                          plot.rich + theme(legend.position = "none"), 
+                          plot.even + theme(legend.position = "none"),
+                          ph.reg + theme(legend.position = 'none'),nrow= 1),
+              nrow = 1)
+
+```
+
+```{r}
+ggsave("diversity_indices.png",diversity_plots, width = 50, height = 24, units = "cm")
+```
