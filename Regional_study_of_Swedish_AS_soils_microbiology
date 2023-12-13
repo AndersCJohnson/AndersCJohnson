@@ -1,0 +1,3171 @@
+---
+title: "LNUASS RMD"
+author: "anders"
+date: "`r format(Sys.time(), '%Y-%m-%d')`"
+output:
+  pdf_document:
+    fig_caption: yes
+    fig_height: 9
+    fig_width: 8
+    number_sections: yes
+    toc: yes
+  html_document:
+    toc: yes
+---
+
+```{r setup, echo=F, cache = FALSE}
+knitr::opts_chunk$set(echo = TRUE, fig.path = 'figures/', cache = TRUE)
+ggplot2::theme_set(ggplot2::theme_bw())
+```
+
+
+
+# Workflow
+
+## Load required libraries
+
+```{r libraries, message=F, cache = FALSE}
+library(readr)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(kfigr)
+library(knitr)
+# Packages needed to calculate clr
+library(zCompositions)
+library(ALDEx2)
+library(CoDaSeq)
+library(ggrepel)
+library(phyloseq)
+library(asbio)
+library(vegan)
+library(gridExtra)
+library(tidyverse)
+library(ggpubr)
+library(agricolae)
+library(zinbwave)
+library(DESeq2)
+library(apeglm)
+library(scran)
+library(cowplot)
+library(VennDiagram)
+library(pscl)
+library(MASS)
+library(dbplyr)
+
+
+```
+
+
+# set the color palette. this color palette is useful because its colors are easily distinguishable from one another and prohibits the rainboweffect from happening
+```{r set the color palette}
+myColors <- c("#89C5DA", "#DA5724", "#74D944", "#CE50CA", "#3F4921", "#C0717C", "#CBD588", "#5F7FC7", "#673770", "#D3D93E", "#38333E", "#508578", "#D7C1B1", "#689030", "#AD6F3B", "#CD9BCD", 
+"#D14285", "#6DDE88", "#652926", "#7FDCC0", "#C84248", "#8569D5", "#5E738F", "#D1A33D", 
+"#8A7C64", "#599861")
+```
+
+
+##set the working directory
+```{r set working directory}
+setwd("C:/Users/anjoad/Box/Laboratory Journal/Projects/LNUASS-Swedish ASS/LNUASS_microbiology/LNUASS-Active ASS sites")
+```
+
+
+## Read data files
+
+We start by reading in the data files: ASVs (counts), sample data ("metadata") and the taxonomy.
+
+```{r read-counts-data }
+# Read the ASV table and turn it long without zeroes
+asvs <- read_csv("LNUASS_Active_ASV_table_Clean.csv",
+  col_types = cols(.default = col_double(), seqid = col_character())) %>%
+  gather(sample, count, 2:162) %>%
+  # Take away rows with zero count
+  filter(count > 0) %>%
+  # Take away samples with less than 500 observations (this is an arbitrary choice 
+  # to get rid of samples with very low sequencing depth). 
+    #due to low seq depth, samples with less than 500 obsv were not filtered
+  #group_by(sample) %>% 
+  #filter(sum(count) >= 500) %>% 
+  ungroup()
+```
+
+```{r read the taxonomy data}
+# Read the taxonomy table
+taxonomy <- read_tsv("LNUASS_Active_ASV_tax_species.tsv", col_types = cols("seqid" = col_character(), "Domain" = col_character(), "Kingdom"  = col_character(), "Class" = col_character(), "Order" = col_character(), "Family" = col_character(), "Genus" = col_character(), "Species" = col_character(), "confidence" = col_double(), "sequence" = col_character())) %>% 
+  # rename "uncultured" to N/A
+  mutate(across(c(Class, Order, Family, Genus, Species), ~na_if(., "uncultured"))) %>%
+  mutate(across(c(Class, Order, Family, Genus, Species), ~na_if(., "uncultured bacterium"))) %>%
+  mutate(across(c(Class, Order, Family, Genus, Species), ~na_if(., "uncultured organism"))) %>%
+  mutate(across(c(Class, Order, Family, Genus, Species), ~na_if(., "uncultured Actinomycetales bacterium"))) 
+  # Rename Feature ID to seqid, the name in the ASV table
+   #rename(seqid = ASV_ID)
+```
+
+```{r read the metadata}
+# Read the sample data ("metadata")
+samples <- read_csv("LNUASS_Active_metadata_Clean.csv", 
+  col_names = TRUE,
+  col_types = cols(.default = col_double(),
+    sample = col_character(), 
+    N_to_S_Site_names = col_character(), 
+    sample_Identity = col_character(), 
+    site = col_character(), 
+    replicate = col_character(),
+    zone = col_character(),
+    OX = col_double(),
+    TR = col_double(),
+    RZ = col_double(),
+    regions = col_character(),
+    pH = col_double(),
+    Temp = col_double(),
+    Zone_depth_START_cm = col_double(),
+    Zone_size_cm = col_double(),
+    LOI = col_double(),
+    Ti_AR = col_double(),
+    S_AR = col_double(),
+    Fe3_mgKg = col_double(),
+    Fe2_mgKg = col_double(),
+    Na_H2O_mgKg = col_double())) %>%
+  
+  # Subset the table to only contain the samples that are in the asvs table (which was 
+  # subset to only contain samples > 500 observations).
+  semi_join(asvs, by = 'sample')
+# subset to remove rows with NA values
+#samples<-samples[complete.cases(samples), ]
+```
+
+
+```{r}
+sequencing_depth <- read_csv("LNUASS_Active_ASV_table_Clean.csv", col_names = TRUE,
+  col_types = cols(.default = col_double(), seqid = col_character())) 
+
+asvs<-sequencing_depth%>%
+  gather(sample, count, 2:ncol(.)) %>% 
+  filter(count > 0) %>%
+  group_by(sample) %>% 
+  mutate(relab = count/sum(count)) %>% 
+  filter(n() > 19) %>% 
+  ungroup()
+
+
+sequencing_depth %>%
+  gather(sample, count, -1)%>%
+  group_by(seqid)%>%
+  #filter(count > 0) %>% 
+  ungroup() %>%
+  mutate(count = as.integer(count))%>%
+  # Add metadata
+ inner_join(samples, by = 'sample')%>%
+  # Relative abundance, grouped first by sample name, and then next by rep(sampling replicate identifier)
+  group_by(sample) %>%
+  group_by(site, zone)%>% #do at sample level first 
+  mutate(relab = count/sum(count)) %>% ungroup() -> sequencing_depth_seqtab
+```
+
+
+```{r, rarefaction_OX}
+sequencing_depth_seqtab %>%
+  subset(zone == "OX") %>%
+  subset(regions == "A1") %>%
+  dplyr::select (seqid, sample, count) %>%
+  spread(seqid, count, fill = 0) %>%
+  column_to_rownames("sample")%>%
+  rarecurve(sample= 100, step = 100, xlab = "Sequencing Depth", ylab = "# of ASVs")
+title(main = "Rarefaction Curve for OZ Zone, Region A1")
+```
+```{r, rarefaction_OX}
+sequencing_depth_seqtab %>%
+  subset(zone == "OX") %>%
+  subset(regions == "A2") %>%
+  dplyr::select (seqid, sample, count) %>%
+  spread(seqid, count, fill = 0) %>%
+  column_to_rownames("sample")%>%
+  rarecurve(sample= 100, step = 100, xlab = "Sequencing Depth", ylab = "# of ASVs")
+title(main = "Rarefaction Curve for OZ Zone, Region A2")
+```
+
+```{r, rarefaction_OX}
+sequencing_depth_seqtab %>%
+  subset(zone == "OX") %>%
+  subset(regions == "A3") %>%
+  dplyr::select (seqid, sample, count) %>%
+  spread(seqid, count, fill = 0) %>%
+  column_to_rownames("sample")%>%
+  rarecurve(sample= 100, step = 100, xlab = "Sequencing Depth", ylab = "# of ASVs")
+title(main = "Rarefaction Curve for OZ Zone, Region A3")
+```
+
+```{r, rarefaction_OX}
+sequencing_depth_seqtab %>%
+  subset(zone == "OX") %>%
+  subset(regions == "A4") %>%
+  dplyr::select (seqid, sample, count) %>%
+  spread(seqid, count, fill = 0) %>%
+  column_to_rownames("sample")%>%
+  rarecurve(sample= 100, step = 100, xlab = "Sequencing Depth", ylab = "# of ASVs")
+title(main = "Rarefaction Curve for OZ Zone, Region A4")
+```
+
+```{r, rarefaction_OX}
+sequencing_depth_seqtab %>%
+  subset(zone == "OX") %>%
+  subset(regions == "A5") %>%
+  dplyr::select (seqid, sample, count) %>%
+  spread(seqid, count, fill = 0) %>%
+  column_to_rownames("sample")%>%
+  rarecurve(sample= 100, step = 100, xlab = "Sequencing Depth", ylab = "# of ASVs")
+title(main = "Rarefaction Curve for OZ Zone, Region A5")
+```
+
+```{r, rarefaction_TR}
+sequencing_depth_seqtab %>%
+  subset(zone == "TR") %>%
+  subset(regions == "A1") %>%
+  dplyr::select (seqid, sample, count) %>%
+  spread(seqid, count, fill = 0) %>%
+  column_to_rownames("sample")%>%
+  rarecurve(sample= 100, step = 100, xlab = "Sequencing Depth", ylab = "# of ASVs")
+title(main = "Rarefaction Curve for TR Zone, Region A1")
+```
+
+```{r, rarefaction_TR}
+sequencing_depth_seqtab %>%
+  subset(zone == "TR") %>%
+  subset(regions == "A2") %>%
+  dplyr::select (seqid, sample, count) %>%
+  spread(seqid, count, fill = 0) %>%
+  column_to_rownames("sample")%>%
+  rarecurve(sample= 100, step = 100, xlab = "Sequencing Depth", ylab = "# of ASVs")
+title(main = "Rarefaction Curve for TR Zone, Region A2")
+```
+
+```{r, rarefaction_TR}
+sequencing_depth_seqtab %>%
+  subset(zone == "TR") %>%
+  subset(regions == "A3") %>%
+  dplyr::select (seqid, sample, count) %>%
+  spread(seqid, count, fill = 0) %>%
+  column_to_rownames("sample")%>%
+  rarecurve(sample= 100, step = 100, xlab = "Sequencing Depth", ylab = "# of ASVs")
+title(main = "Rarefaction Curve for TR Zone, Region A3")
+```
+
+```{r, rarefaction_TR}
+sequencing_depth_seqtab %>%
+  subset(zone == "TR") %>%
+  subset(regions == "A4") %>%
+  dplyr::select (seqid, sample, count) %>%
+  spread(seqid, count, fill = 0) %>%
+  column_to_rownames("sample")%>%
+  rarecurve(sample= 100, step = 100, xlab = "Sequencing Depth", ylab = "# of ASVs")
+title(main = "Rarefaction Curve for TR Zone, Region A4")
+```
+
+```{r, rarefaction_TR}
+sequencing_depth_seqtab %>%
+  subset(zone == "TR") %>%
+  subset(regions == "A5") %>%
+  dplyr::select (seqid, sample, count) %>%
+  spread(seqid, count, fill = 0) %>%
+  column_to_rownames("sample")%>%
+  rarecurve(sample= 100, step = 100, xlab = "Sequencing Depth", ylab = "# of ASVs")
+title(main = "Rarefaction Curve for TR Zone, Region A5")
+```
+
+
+```{r, rarefaction_RZ}
+sequencing_depth_seqtab %>%
+  subset(zone == "RZ") %>%
+  subset(regions == "A1") %>%
+  dplyr::select (seqid, sample, count) %>%
+  spread(seqid, count, fill = 0) %>%
+  column_to_rownames("sample")%>%
+  rarecurve(sample= 100, step = 100, xlab = "Sequencing Depth", ylab = "# of ASVs")
+title(main = "Rarefaction Curve for RZ Zone, Region A1")
+```
+
+```{r, rarefaction_RZ}
+sequencing_depth_seqtab %>%
+  subset(zone == "RZ") %>%
+  subset(regions == "A2") %>%
+  dplyr::select (seqid, sample, count) %>%
+  spread(seqid, count, fill = 0) %>%
+  column_to_rownames("sample")%>%
+  rarecurve(sample= 100, step = 100, xlab = "Sequencing Depth", ylab = "# of ASVs")
+title(main = "Rarefaction Curve for RZ Zone, Region A2")
+```
+
+```{r, rarefaction_RZ}
+sequencing_depth_seqtab %>%
+  subset(zone == "RZ") %>%
+  subset(regions == "A3") %>%
+  dplyr::select (seqid, sample, count) %>%
+  spread(seqid, count, fill = 0) %>%
+  column_to_rownames("sample")%>%
+  rarecurve(sample= 100, step = 100, xlab = "Sequencing Depth", ylab = "# of ASVs")
+title(main = "Rarefaction Curve for RZ Zone, Region A3")
+```
+
+```{r, rarefaction_RZ}
+sequencing_depth_seqtab %>%
+  subset(zone == "RZ") %>%
+  subset(regions == "A4") %>%
+  dplyr::select (seqid, sample, count) %>%
+  spread(seqid, count, fill = 0) %>%
+  column_to_rownames("sample")%>%
+  rarecurve(sample= 100, step = 100, xlab = "Sequencing Depth", ylab = "# of ASVs")
+title(main = "Rarefaction Curve for RZ Zone, Region A4")
+```
+
+```{r, rarefaction_RZ}
+# there are no samples in the RZ of region A5
+```
+
+
+  
+
+
+Export the plot
+```{r}
+### manually save with right-click "save as"
+```
+
+
+###Barplots 
+
+
+```{r}
+seqtab <- sequencing_depth_seqtab
+```
+
+
+
+###looks at the top 20 genera, 
+```{r, select top 20 most abundant genera}
+# Select the 20 most abundant genera
+seqtab %>%
+  inner_join(taxonomy, by = 'seqid')%>%
+  group_by(Genus, sample)%>%
+  # Calculate the relative abundance of each genus in each sample
+  summarise(relab = sum(relab))%>%
+  # Calculate the mean relative abundance of each genus over the samples
+  summarise(mean_relab = sum(relab))%>%
+  ungroup() %>%
+  # Filter out non-assigned genera
+  filter(!is.na(Genus))%>%
+  # Select the top 20
+  top_n(20, mean_relab) -> t20_genus
+```
+##print the top20 genera table
+```{r print top20 genera table}
+t20_genus%>%
+ arrange(desc(mean_relab))->LNUASS_Active_t20_genus_order_decending
+
+pdf("LNUASS_Active_genera_top_20_relab_table.pdf", height=8, width=8)
+title <- "Overall, Top 20 Genera, Relative Abundance"
+
+grid::grid.newpage()
+grid::grid.text(title,x = (.5), y = (0.9))
+grid.table(LNUASS_Active_t20_genus_order_decending) 
+dev.off()
+```
+
+ top 20 genus by zone 
+ 
+
+
+```{r top 20 genus OX}
+seqtab %>%
+  subset( zone == "OX")%>%
+  inner_join(taxonomy, by = 'seqid')%>%
+  group_by(Genus, sample) %>%
+  # Calculate the relative abundance of each genus in each sample
+  summarise(relab = sum(relab))%>%
+  # Calculate the mean relative abundance of each genus over the samples
+  summarise(mean_relab = sum(relab))%>%
+  ungroup() %>%
+  # Filter out non-assigned genera
+  filter(!is.na(Genus))%>%
+  # Select the top 20
+  top_n(20, mean_relab) -> t20_genus_OX
+```
+
+```{r}
+t20_genus_OX%>%
+ arrange(desc(mean_relab))->LNUASS_Active_t20_genus_OX_order_decending
+
+pdf("LNUASS_Active_genera_OX_top_20_relab_table.pdf", height=8, width=8)
+title <- "Overall, Top 20 Genera OX zone, Relative Abundance"
+
+grid::grid.newpage()
+grid::grid.text(title,x = (.5), y = (0.9))
+grid.table(LNUASS_Active_t20_genus_OX_order_decending) 
+dev.off()
+```
+
+
+```{r top 20 genus TR}
+seqtab %>%
+  subset( zone == "TR")%>%
+  inner_join(taxonomy, by = 'seqid')%>%
+  group_by(Genus, sample) %>%
+  # Calculate the relative abundance of each genus in each sample
+  summarise(relab = sum(relab))%>%
+  # Calculate the mean relative abundance of each genus over the samples
+  summarise(mean_relab = sum(relab))%>%
+  ungroup() %>%
+  # Filter out non-assigned genera
+  filter(!is.na(Genus))%>%
+  # Select the top 20
+  top_n(20, mean_relab) -> t20_genus_TR
+```
+
+```{r}
+t20_genus_TR%>%
+ arrange(desc(mean_relab))->LNUASS_Active_t20_genus_TR_order_decending
+
+pdf("LNUASS_Active_genera_TR_top_20_relab_table.pdf", height=8, width=8)
+title <- "Overall, Top 20 Genera TR zone, Relative Abundance"
+
+grid::grid.newpage()
+grid::grid.text(title,x = (.5), y = (0.9))
+grid.table(LNUASS_Active_t20_genus_TR_order_decending) 
+dev.off()
+```
+
+
+
+```{r top 20 genus RZ}
+seqtab %>%
+  subset( zone == "RZ")%>%
+  inner_join(taxonomy, by = 'seqid')%>%
+  group_by(Genus, sample) %>%
+  # Calculate the relative abundance of each genus in each sample
+  summarise(relab = sum(relab))%>%
+  # Calculate the mean relative abundance of each genus over the samples
+  summarise(mean_relab = sum(relab))%>%
+  ungroup() %>%
+  # Filter out non-assigned genera
+  filter(!is.na(Genus))%>%
+  # Select the top 20
+  top_n(20, mean_relab) -> t20_genus_RZ
+```
+
+```{r}
+t20_genus_RZ%>%
+ arrange(desc(mean_relab))->LNUASS_Active_t20_genus_RZ_order_decending
+
+pdf("LNUASS_Active_genera_RZ_top_20_relab_table.pdf", height=8, width=8)
+title <- "Overall, Top 20 Genera RZ zone, Relative Abundance"
+
+grid::grid.newpage()
+grid::grid.text(title,x = (.5), y = (0.9))
+grid.table(LNUASS_Active_t20_genus_RZ_order_decending) 
+dev.off()
+```
+
+
+
+####genera
+
+```{r assign-top10-genera-to-taxonomy}
+# Start by finding the top 11 genera *on average* over the samples
+p <- asvs %>%
+  inner_join(taxonomy, by = 'seqid') %>%
+  group_by(Genus, sample) %>%
+  # Calculate the relative abundance of each genera in each sample
+  summarise(relab = sum(relab)) %>%
+  # Calculate the *mean* relative abundance of each genera over the samples
+  summarise(mean_relab = sum(relab)) %>%
+  ungroup() %>%
+  # Filter out non-assigned genera
+  filter(!is.na(Genus)) %>%
+  # Select the top 11
+  top_n(20, mean_relab)
+# Add this information to the taxonomy table as the column topgenera
+taxonomy <- taxonomy %>%
+  # Join in the top 10 table. *Important* with left join, otherwise you loose rows in the
+  # taxonomy table that do not appear in the top 11 table.
+  left_join(
+    p %>% 
+      # Duplicate the genera column, with the old name and as "topgenera"
+      transmute(Genus, topgenus = Genus),
+    by = 'Genus'
+  ) %>%
+  # Set topgenus to 'Other' for those that were not among the top 11
+  replace_na(list('topgenus' = 'Other'))
+```
+
+```{r}
+asvs %>%
+  left_join(taxonomy, by = 'seqid') %>%
+  group_by(sample, Genus) %>% summarise(relab = sum(relab)) %>% ungroup() %>%
+  spread(sample, relab, fill = 0) %>%
+  write_tsv('asvs.tsv')
+```
+
+```{r plot-top-genus}
+asvs %>%
+  inner_join(taxonomy, by = 'seqid') %>%
+  group_by(topgenus, sample) %>% summarise(relab = sum(relab)) %>% ungroup() %>%
+  ggplot(aes(
+    x = sample, 
+    y = relab, 
+    fill = fct_relevel(topgenus, "Other" , after = Inf))) +
+  geom_col() +
+  scale_fill_manual(values = myColors) +
+  coord_flip() +
+  labs(title = "Top 20 Genus")+
+  ylab("Relative Abundance")+
+  xlab("Site")+
+  theme(
+    legend.position = 'bottom', legend.title = element_blank())+
+  guides(fill = guide_legend(reverse = TRUE))
+```
+
+
+```{r}
+ggsave("figures/LNUASS_Active_StackedBar_Top_20_genus_indivSites.pdf",scale = 2, width = 20, height = 15, units = "cm")
+```
+
+
+
+
+```{r plot-top-genus}
+asvs %>%
+  inner_join(taxonomy, by = 'seqid') %>%
+  merge(samples)%>%
+  group_by( topgenus, site, zone, sample_Identity, replicate)%>%
+  summarise(relab = sum(relab)/3) %>% 
+  #ungroup()%>%
+  
+ggplot(aes(
+    x = fct_relevel(site, c("19" , "20", "13" , "14" , "1" , "15" , "18" , "16" , "17" , "12" , "11" , "10" , "9" ,  "8" , "7" , "6" , "5" , "4", "3" , "2" )), 
+    y = relab, 
+    fill = fct_relevel(topgenus, "Other" , after = Inf))) +
+  geom_col() +
+  scale_fill_manual(values = myColors) +
+  coord_flip() +
+  facet_grid(. ~ factor(zone,levels = c("OX", "TR", "RZ")) , scales = "free_x")+
+  labs(title = "Top 20 Genus")+
+  ylab("Relative Abundance")+
+  xlab("Site")+
+  theme(
+    legend.position = 'bottom' , legend.title = element_blank()) +
+  guides(fill = guide_legend(reverse = TRUE))
+```
+
+```{r}
+ggsave("figures/LNUASS_Active_StackedBar_Top_20_genus.pdf", scale = 2, width = 18, height = 10, units = "cm")
+```
+
+
+
+
+
+
+### family
+
+###looks at the top 20 family, 
+```{r, select top 20 most abundant family}
+# Select the 20 most abundant family
+seqtab %>%
+  inner_join(taxonomy, by = 'seqid')%>%
+  group_by(Family, sample)%>%
+  # Calculate the relative abundance of each family in each sample
+  summarise(relab = sum(relab))%>%
+  # Calculate the mean relative abundance of each family over the samples
+  summarise(mean_relab = sum(relab))%>%
+  ungroup() %>%
+  # Filter out non-assigned family
+  filter(!is.na(Family))%>%
+  # Select the top 20
+  top_n(20, mean_relab) -> t20_family
+```
+##print the top20 family table
+```{r print top20 family table}
+t20_family%>%
+ arrange(desc(mean_relab))->LNUASS_Active_t20_family_order_decending
+
+pdf("LNUASS_Active_family_top_20_relab_table.pdf", height=8, width=8)
+title <- "Overall, Top 20 Family, Relative Abundance"
+
+grid::grid.newpage()
+grid::grid.text(title,x = (.5), y = (0.9))
+grid.table(LNUASS_Active_t20_family_order_decending) 
+dev.off()
+```
+
+
+```{r top 20 family OX}
+seqtab %>%
+  subset( zone == "OX")%>%
+  inner_join(taxonomy, by = 'seqid')%>%
+  group_by(Family, sample) %>%
+  # Calculate the relative abundance of each family in each sample
+  summarise(relab = sum(relab))%>%
+  # Calculate the mean relative abundance of each family over the samples
+  summarise(mean_relab = sum(relab))%>%
+  ungroup() %>%
+  # Filter out non-assigned family
+  filter(!is.na(Family))%>%
+  # Select the top 20
+  top_n(20, mean_relab) -> t20_family_OX
+```
+
+```{r}
+t20_family_OX%>%
+ arrange(desc(mean_relab))->LNUASS_Active_t20_family_OX_order_decending
+
+pdf("LNUASS_Active_family_OX_top_20_relab_table.pdf", height=8, width=8)
+title <- "Overall, Top 20 Family OX zone, Relative Abundance"
+
+grid::grid.newpage()
+grid::grid.text(title,x = (.5), y = (0.9))
+grid.table(LNUASS_Active_t20_family_OX_order_decending) 
+dev.off()
+```
+
+
+```{r top 20 family TR}
+seqtab %>%
+  subset( zone == "TR")%>%
+  inner_join(taxonomy, by = 'seqid')%>%
+  group_by(Family, sample) %>%
+  # Calculate the relative abundance of each family in each sample
+  summarise(relab = sum(relab))%>%
+  # Calculate the mean relative abundance of each family over the samples
+  summarise(mean_relab = sum(relab))%>%
+  ungroup() %>%
+  # Filter out non-assigned family
+  filter(!is.na(Family))%>%
+  # Select the top 20
+  top_n(20, mean_relab) -> t20_family_TR
+```
+
+```{r}
+t20_family_TR%>%
+ arrange(desc(mean_relab))->LNUASS_Active_t20_family_TR_order_decending
+
+pdf("LNUASS_Active_family_TR_top_20_relab_table.pdf", height=8, width=8)
+title <- "Overall, Top 20 Family TR zone, Relative Abundance"
+
+grid::grid.newpage()
+grid::grid.text(title,x = (.5), y = (0.9))
+grid.table(LNUASS_Active_t20_family_TR_order_decending) 
+dev.off()
+```
+
+
+
+```{r top 20 family RZ}
+seqtab %>%
+  subset( zone == "RZ")%>%
+  inner_join(taxonomy, by = 'seqid')%>%
+  group_by(Family, sample) %>%
+  # Calculate the relative abundance of each family in each sample
+  summarise(relab = sum(relab))%>%
+  # Calculate the mean relative abundance of each family over the samples
+  summarise(mean_relab = sum(relab))%>%
+  ungroup() %>%
+  # Filter out non-assigned family
+  filter(!is.na(Family))%>%
+  # Select the top 20
+  top_n(20, mean_relab) -> t20_family_RZ
+```
+
+```{r}
+t20_family_RZ%>%
+ arrange(desc(mean_relab))->LNUASS_Active_t20_family_RZ_order_decending
+
+pdf("LNUASS_Active_family_RZ_top_20_relab_table.pdf", height=8, width=8)
+title <- "Overall, Top 20 Family RZ zone, Relative Abundance"
+
+grid::grid.newpage()
+grid::grid.text(title,x = (.5), y = (0.9))
+grid.table(LNUASS_Active_t20_family_RZ_order_decending) 
+dev.off()
+```
+
+
+####family
+
+```{r assign-top10-family-to-taxonomy}
+# Start by finding the top 11 family *on average* over the samples
+p <- asvs %>%
+  inner_join(taxonomy, by = 'seqid') %>%
+  group_by(Family, sample) %>%
+  # Calculate the relative abundance of each family in each sample
+  summarise(relab = sum(relab)) %>%
+  # Calculate the *mean* relative abundance of each family over the samples
+  summarise(mean_relab = sum(relab)) %>%
+  ungroup() %>%
+  # Filter out non-assigned family
+  filter(!is.na(Family)) %>%
+  # Select the top 11
+  top_n(20, mean_relab)
+# Add this information to the taxonomy table as the column topfamily
+taxonomy <- taxonomy %>%
+  # Join in the top 10 table. *Important* with left join, otherwise you loose rows in the
+  # taxonomy table that do not appear in the top 11 table.
+  left_join(
+    p %>% 
+      # Duplicate the family column, with the old name and as "topfamily"
+      transmute(Family, topfamily = Family),
+    by = 'Family'
+  ) %>%
+  # Set topfamily to 'Other' for those that were not among the top 11
+  replace_na(list('topfamily' = 'Other'))
+```
+
+```{r}
+asvs %>%
+  left_join(taxonomy, by = 'seqid') %>%
+  group_by(sample, Family) %>% summarise(relab = sum(relab)) %>% ungroup() %>%
+  spread(sample, relab, fill = 0) %>%
+  write_tsv('asvs.tsv')
+```
+
+```{r plot-top-family}
+asvs %>%
+  inner_join(taxonomy, by = 'seqid') %>%
+  group_by(topfamily, sample) %>% summarise(relab = sum(relab)) %>% ungroup() %>%
+  ggplot(aes(
+    x = sample, 
+    y = relab, 
+    fill = fct_relevel(topfamily, "Other" , after = Inf))) +
+  geom_col() +
+  scale_fill_manual(values = myColors) +
+  coord_flip() +
+  labs(title = "Top 20 Family")+
+  ylab("Relative Abundance")+
+  xlab("Site")+
+  theme(
+    legend.position = 'bottom', legend.title = element_blank()) +
+  guides(fill = guide_legend(reverse = TRUE))
+```
+
+```{r}
+ggsave("figures/LNUASS_Active_StackedBar_Top_20_family_indivSites.pdf", width = 18, height = 10, units = "cm")
+```
+
+
+
+
+```{r plot-top-family}
+asvs %>%
+  inner_join(taxonomy, by = 'seqid') %>%
+  merge(samples)%>%
+  group_by( topfamily, site, zone, sample_Identity, replicate)%>%
+  summarise(relab = sum(relab)/3) %>% 
+  #ungroup()%>%
+  
+ggplot(aes(
+    x = fct_relevel(site, c("19" , "20", "13" , "14" , "1" , "15" , "18" , "16" , "17" , "12" , "11" , "10" , "9" ,  "8" , "7" , "6" , "5" , "4", "3" , "2" )), 
+    y = relab, 
+    fill = fct_relevel(topfamily, "Other" , after = Inf))) +
+  geom_col() +
+  scale_fill_manual(values = myColors) +
+  coord_flip() +
+  facet_grid(. ~ factor(zone,levels = c("OX", "TR", "RZ")) , scales = "free_x")+
+  labs(title = "Top 20 Family")+
+  ylab("Relative Abundance")+
+  xlab("Site")+
+  theme(
+    legend.position = 'bottom', legend.title = element_blank()) +
+  guides(fill = guide_legend(reverse = TRUE))
+
+
+    
+```
+
+```{r}
+ggsave("figures/LNUASS_Active_StackedBar_Top_20_family.pdf",scale = 2, width = 18, height = 10, units = "cm")
+```
+
+
+
+
+```{r}
+# Your existing code
+family_stacked_bars_data <- asvs %>%
+  inner_join(taxonomy, by = 'seqid') %>%
+  merge(samples) %>%
+  group_by(topfamily, site, zone, sample_Identity, replicate) %>%
+  summarise(relab = sum(relab)) %>%
+  ungroup()  # Remove grouping for the next step
+
+# Reshape data for table
+family_table_data <- family_stacked_bars_data %>%
+  pivot_wider(names_from = topfamily, values_from = relab, values_fill = 0)
+
+# Reorder rows based on the order of sites in the plot
+family_table_data <- family_table_data %>%
+  arrange(match(site, rev(c("19", "20", "13", "14", "1", "15", "18", "16", "17", "12", "11", "10", "9", "8", "7", "6", "5", "4", "3", "2"))))
+
+family_colSums <- family_table_data %>%
+  group_by(site, zone) %>%
+  summarise(across(everything(), mean, na.rm = TRUE), .groups = 'drop')
+
+# Print the table
+print(family_colSums)
+
+# Filter data for each zone
+family_table_data_OX <- family_colSums %>% filter(zone == "OX") %>%
+  arrange(match(site, rev(c("19", "20", "13", "14", "1", "15", "18", "16", "17", "12", "11", "10", "9", "8", "7", "6", "5", "4", "3", "2"))))
+family_table_data_TR <- family_colSums %>% filter(zone == "TR") %>% 
+  arrange(match(site, rev(c("19", "20", "13", "14", "1", "15", "18", "16", "17", "12", "11", "10", "9", "8", "7", "6", "5", "4", "3", "2"))))
+family_table_data_RZ <- family_colSums %>% filter(zone == "RZ") %>%
+  arrange(match(site, rev(c("19", "20", "13", "14", "1", "15", "18", "16", "17", "12", "11", "10", "9", "8", "7", "6", "5", "4", "3", "2"))))
+
+
+# Save each table as a CSV file
+write.csv(family_table_data_OX, "figures/LNUASS_family_relab_table_OX.csv", row.names = FALSE)
+write.csv(family_table_data_TR, "figures/LNUASS_family_relab_table_TR.csv", row.names = FALSE)
+write.csv(family_table_data_RZ, "figures/LNUASS_family_relab_table_RZ.csv", row.names = FALSE)
+
+```
+
+```{r anovas}
+#OX
+family_stacked_bars_anovas <- asvs %>%
+  inner_join(taxonomy, by = 'seqid') %>%
+  merge(samples) %>%
+  group_by(topfamily, site, zone) %>%
+  summarise(relab = sum(relab)) %>%
+  ungroup()  # Remove grouping for the next step
+
+# Reshape data for table
+family_table_data_anovas <- family_stacked_bars_anovas %>%
+  pivot_wider(names_from = topfamily, values_from = relab, values_fill = 0)
+
+# Reorder rows based on the order of sites in the plot
+family_table_data_anovas <- family_table_data_anovas %>%
+  arrange(match(site, rev(c("19", "20", "13", "14", "1", "15", "18", "16", "17", "12", "11", "10", "9", "8", "7", "6", "5", "4", "3", "2"))))
+
+
+family_table_data_anovas_OX <- family_table_data_anovas %>% subset(zone == "OX")
+
+# Create a new variable 'region' based on the specified sites
+family_table_data_anovas <- family_table_data_anovas_OX %>%
+  mutate(region = ifelse(site %in% c(2,3,4,5,6,7,8,9,10), "A1", "A3A4A5"))
+
+# List of taxa columns
+taxa_columns <- colnames(family_table_data_anovas)[3:ncol(family_table_data_anovas)]
+
+# Initialize an empty data frame to store results
+anova_results <- data.frame(Taxon = character(),
+                            Zone = character(),
+                            Region = character(),
+                            F_value = numeric(),
+                            P_value = numeric(),
+                            stringsAsFactors = FALSE)
+
+# Loop through taxa and zones
+for (taxon in taxa_columns) {
+  for (zone in unique(family_table_data_anovas$zone)) {
+    # Filter data for the specific taxon and zone
+    data_subset <- family_table_data_anovas %>%
+      filter(zone == zone)
+
+    # Check the number of levels in the 'region' variable
+    if (length(unique(data_subset$region)) > 1) {
+      # Perform ANOVA
+      tryCatch({
+        anova_result <- aov(as.formula(paste(taxon, "~ region")), data = data_subset)
+
+        # Extract relevant information
+        result_row <- data.frame(
+          Taxon = taxon,
+          Zone = zone,
+          Region = "A1 vs A3A4A5",
+          F_value = round(summary(anova_result)[[1]]$`F value`[1], 7),
+          P_value = round(summary(anova_result)[[1]]$`Pr(>F)`[1], 7)
+        )
+
+        # Store results in the data frame
+        anova_results <- bind_rows(anova_results, result_row)
+      }, error = function(e) {
+        warning(paste("Error in ANOVA for", taxon, "and zone", zone, ":", e$message))
+      })
+    } else {
+      warning("Not enough variability in 'region' for ANOVA.")
+    }
+  } 
+}
+
+# Print the matrix of results
+print(anova_results)
+write.csv(anova_results, "figures/family_anova_results_OX.csv", row.names = FALSE)
+
+
+#TR
+
+family_stacked_bars_anovas <- asvs %>%
+  inner_join(taxonomy, by = 'seqid') %>%
+  merge(samples) %>%
+  group_by(topfamily, site, zone) %>%
+  summarise(relab = sum(relab)) %>%
+  ungroup()  # Remove grouping for the next step
+
+# Reshape data for table
+family_table_data_anovas <- family_stacked_bars_anovas %>%
+  pivot_wider(names_from = topfamily, values_from = relab, values_fill = 0)
+
+# Reorder rows based on the order of sites in the plot
+family_table_data_anovas <- family_table_data_anovas %>%
+  arrange(match(site, rev(c("19", "20", "13", "14", "1", "15", "18", "16", "17", "12", "11", "10", "9", "8", "7", "6", "5", "4", "3", "2"))))
+
+family_table_data_anovas_TR <- family_table_data_anovas %>% subset(zone == "TR")
+
+# Create a new variable 'region' based on the specified sites
+family_table_data_anovas <- family_table_data_anovas_TR %>%
+  mutate(region = ifelse(site %in% c(2,3,4,5,6,7,8,9,10), "A1", "A3A4A5"))
+
+# List of taxa columns
+taxa_columns <- colnames(family_table_data_anovas)[3:ncol(family_table_data_anovas)]
+
+# Initialize an empty data frame to store results
+anova_results <- data.frame(Taxon = character(),
+                            Zone = character(),
+                            Region = character(),
+                            F_value = numeric(),
+                            P_value = numeric(),
+                            stringsAsFactors = FALSE)
+
+# Loop through taxa and zones
+for (taxon in taxa_columns) {
+  for (zone in unique(family_table_data_anovas$zone)) {
+    # Filter data for the specific taxon and zone
+    data_subset <- family_table_data_anovas %>%
+      filter(zone == zone)
+
+    # Check the number of levels in the 'region' variable
+    if (length(unique(data_subset$region)) > 1) {
+      # Perform ANOVA
+      tryCatch({
+        anova_result <- aov(as.formula(paste(taxon, "~ region")), data = data_subset)
+
+        # Extract relevant information
+        result_row <- data.frame(
+          Taxon = taxon,
+          Zone = zone,
+          Region = "A1 vs A3A4A5",
+          F_value = round(summary(anova_result)[[1]]$`F value`[1], 7),
+          P_value = round(summary(anova_result)[[1]]$`Pr(>F)`[1], 7)
+        )
+
+        # Store results in the data frame
+        anova_results <- bind_rows(anova_results, result_row)
+      }, error = function(e) {
+        warning(paste("Error in ANOVA for", taxon, "and zone", zone, ":", e$message))
+      })
+    } else {
+      warning("Not enough variability in 'region' for ANOVA.")
+    }
+  } 
+}
+
+# Print the matrix of results
+print(anova_results)
+write.csv(anova_results, "figures/family_anova_results_TR.csv", row.names = FALSE)
+
+
+
+#RZ
+
+family_stacked_bars_anovas <- asvs %>%
+  inner_join(taxonomy, by = 'seqid') %>%
+  merge(samples) %>%
+  group_by(topfamily, site, zone) %>%
+  summarise(relab = sum(relab)) %>%
+  ungroup()  # Remove grouping for the next step
+
+# Reshape data for table
+family_table_data_anovas <- family_stacked_bars_anovas %>%
+  pivot_wider(names_from = topfamily, values_from = relab, values_fill = 0)
+
+# Reorder rows based on the order of sites in the plot
+family_table_data_anovas <- family_table_data_anovas %>%
+  arrange(match(site, rev(c("19", "20", "13", "14", "1", "15", "18", "16", "17", "12", "11", "10", "9", "8", "7", "6", "5", "4", "3", "2"))))
+
+family_table_data_anovas_RZ<- family_table_data_anovas %>% subset(zone == "RZ")
+
+# Create a new variable 'region' based on the specified sites
+family_table_data_anovas <- family_table_data_anovas_RZ %>%
+  mutate(region = ifelse(site %in% c(2,3,4,5,6,7,8,9,10), "A1", "A3A4A5"))
+
+# List of taxa columns
+taxa_columns <- colnames(family_table_data_anovas)[3:ncol(family_table_data_anovas)]
+
+# Initialize an empty data frame to store results
+anova_results <- data.frame(Taxon = character(),
+                            Zone = character(),
+                            Region = character(),
+                            F_value = numeric(),
+                            P_value = numeric(),
+                            stringsAsFactors = FALSE)
+
+# Loop through taxa and zones
+for (taxon in taxa_columns) {
+  for (zone in unique(family_table_data_anovas$zone)) {
+    # Filter data for the specific taxon and zone
+    data_subset <- family_table_data_anovas %>%
+      filter(zone == zone)
+
+    # Check the number of levels in the 'region' variable
+    if (length(unique(data_subset$region)) > 1) {
+      # Perform ANOVA
+      tryCatch({
+        anova_result <- aov(as.formula(paste(taxon, "~ region")), data = data_subset)
+
+        # Extract relevant information
+        result_row <- data.frame(
+          Taxon = taxon,
+          Zone = zone,
+          Region = "A1 vs A3A4A5",
+          F_value = round(summary(anova_result)[[1]]$`F value`[1], 7),
+          P_value = round(summary(anova_result)[[1]]$`Pr(>F)`[1], 7)
+        )
+
+        # Store results in the data frame
+        anova_results <- bind_rows(anova_results, result_row)
+      }, error = function(e) {
+        warning(paste("Error in ANOVA for", taxon, "and zone", zone, ":", e$message))
+      })
+    } else {
+      warning("Not enough variability in 'region' for ANOVA.")
+    }
+  } 
+}
+
+# Print the matrix of results
+print(anova_results)
+write.csv(anova_results, "figures/family_anova_results_RZ.csv", row.names = FALSE)
+
+
+
+
+
+```
+
+
+
+
+
+###phylum
+
+###looks at the top 20 phyla, 
+```{r, select top 20 most abundant phyla}
+# Select the 20 most abundant phyla
+seqtab %>%
+  inner_join(taxonomy, by = 'seqid')%>%
+  group_by(Phylum, sample)%>%
+  # Calculate the relative abundance of each phylum in each sample
+  summarise(relab = sum(relab))%>%
+  # Calculate the mean relative abundance of each phylum over the samples
+  summarise(mean_relab = sum(relab))%>%
+  ungroup() %>%
+  # Filter out non-assigned phyla
+  filter(!is.na(Phylum))%>%
+  # Select the top 20
+  top_n(20, mean_relab) -> t20_phylum
+```
+##print the top20 phyla table
+```{r print top20 phyla table}
+t20_phylum%>%
+ arrange(desc(mean_relab))->LNUASS_Active_t20_phylum_order_decending
+
+pdf("LNUASS_Active_phyla_top_20_relab_table.pdf", height=8, width=8)
+title <- "Overall, Top 20 Phyla, Relative Abundance"
+
+grid::grid.newpage()
+grid::grid.text(title,x = (.5), y = (0.9))
+grid.table(LNUASS_Active_t20_phylum_order_decending) 
+dev.off()
+```
+
+
+
+```{r top 20 phylum OX}
+seqtab %>%
+  subset( zone == "OX")%>%
+  inner_join(taxonomy, by = 'seqid')%>%
+  group_by(Phylum, sample) %>%
+  # Calculate the relative abundance of each phylum in each sample
+  summarise(relab = sum(relab))%>%
+  # Calculate the mean relative abundance of each phylum over the samples
+  summarise(mean_relab = sum(relab))%>%
+  ungroup() %>%
+  # Filter out non-assigned phyla
+  filter(!is.na(Phylum))%>%
+  # Select the top 20
+  top_n(20, mean_relab) -> t20_phylum_OX
+```
+
+```{r}
+t20_phylum_OX%>%
+ arrange(desc(mean_relab))->LNUASS_Active_t20_phylum_OX_order_decending
+
+pdf("LNUASS_Active_phyla_OX_top_20_relab_table.pdf", height=8, width=8)
+title <- "Overall, Top 20 Phyla OX zone, Relative Abundance"
+
+grid::grid.newpage()
+grid::grid.text(title,x = (.5), y = (0.9))
+grid.table(LNUASS_Active_t20_phylum_OX_order_decending) 
+dev.off()
+```
+
+
+```{r top 20 phylum TR}
+seqtab %>%
+  subset( zone == "TR")%>%
+  inner_join(taxonomy, by = 'seqid')%>%
+  group_by(Phylum, sample) %>%
+  # Calculate the relative abundance of each phylum in each sample
+  summarise(relab = sum(relab))%>%
+  # Calculate the mean relative abundance of each phylum over the samples
+  summarise(mean_relab = sum(relab))%>%
+  ungroup() %>%
+  # Filter out non-assigned phyla
+  filter(!is.na(Phylum))%>%
+  # Select the top 20
+  top_n(20, mean_relab) -> t20_phylum_TR
+```
+
+```{r}
+t20_phylum_TR%>%
+ arrange(desc(mean_relab))->LNUASS_Active_t20_phylum_TR_order_decending
+
+pdf("LNUASS_Active_phyla_TR_top_20_relab_table.pdf", height=8, width=8)
+title <- "Overall, Top 20 Phyla TR zone, Relative Abundance"
+
+grid::grid.newpage()
+grid::grid.text(title,x = (.5), y = (0.9))
+grid.table(LNUASS_Active_t20_phylum_TR_order_decending) 
+dev.off()
+```
+
+
+
+```{r top 20 phylum RZ}
+seqtab %>%
+  subset( zone == "RZ")%>%
+  inner_join(taxonomy, by = 'seqid')%>%
+  group_by(Phylum, sample) %>%
+  # Calculate the relative abundance of each phylum in each sample
+  summarise(relab = sum(relab))%>%
+  # Calculate the mean relative abundance of each phylum over the samples
+  summarise(mean_relab = sum(relab))%>%
+  ungroup() %>%
+  # Filter out non-assigned phyla
+  filter(!is.na(Phylum))%>%
+  # Select the top 20
+  top_n(20, mean_relab) -> t20_phylum_RZ
+```
+
+```{r}
+t20_phylum_RZ%>%
+ arrange(desc(mean_relab))->LNUASS_Active_t20_phylum_RZ_order_decending
+
+pdf("LNUASS_Active_phyla_RZ_top_20_relab_table.pdf", height=8, width=8)
+title <- "Overall, Top 20 Phyla RZ zone, Relative Abundance"
+
+grid::grid.newpage()
+grid::grid.text(title,x = (.5), y = (0.9))
+grid.table(LNUASS_Active_t20_phylum_RZ_order_decending) 
+dev.off()
+```
+
+
+
+
+####phyla
+
+```{r assign-top10-phyla-to-taxonomy}
+# Start by finding the top 11 phyla *on average* over the samples
+p <- asvs %>%
+  inner_join(taxonomy, by = 'seqid') %>%
+  group_by(Phylum, sample) %>%
+  # Calculate the relative abundance of each phyla in each sample
+  summarise(relab = sum(relab)) %>%
+  # Calculate the *mean* relative abundance of each phyla over the samples
+  summarise(mean_relab = sum(relab)) %>%
+  ungroup() %>%
+  # Filter out non-assigned phyla
+  filter(!is.na(Phylum)) %>%
+  # Select the top 11
+  top_n(20, mean_relab)
+# Add this information to the taxonomy table as the column topphyla
+taxonomy <- taxonomy %>%
+  # Join in the top 10 table. *Important* with left join, otherwise you loose rows in the
+  # taxonomy table that do not appear in the top 11 table.
+  left_join(
+    p %>% 
+      # Duplicate the phyla column, with the old name and as "topphyla"
+      transmute(Phylum, topphylum = Phylum),
+    by = 'Phylum'
+  ) %>%
+  # Set topphylum to 'Other' for those that were not among the top 11
+  replace_na(list('topphylum' = 'Other'))
+```
+
+```{r}
+asvs %>%
+  left_join(taxonomy, by = 'seqid') %>%
+  group_by(sample, Phylum) %>% summarise(relab = sum(relab)) %>% ungroup() %>%
+  spread(sample, relab, fill = 0) %>%
+  write_tsv('asvs.tsv')
+```
+
+```{r plot-top-phylum}
+asvs %>%
+  inner_join(taxonomy, by = 'seqid') %>%
+  group_by(topphylum, sample) %>% summarise(relab = sum(relab)) %>% ungroup() %>%
+  ggplot(aes(
+    x = sample, 
+    y = relab, 
+    fill = fct_relevel(topphylum, "Other" , after = Inf))) +
+  geom_col() +
+  scale_fill_manual(values = myColors) +
+  coord_flip() +
+  labs(title = "Top 20 Phylum")+
+  ylab("Relative Abundance")+
+  xlab("Site")+
+  theme(
+    legend.position = 'bottom', legend.title = element_blank())  +
+  guides(fill = guide_legend(reverse = TRUE))
+  
+```
+
+```{r}
+ggsave("figures/LNUASS_Active_StackedBar_Top_20_phylum_indivSites.pdf", scale = 2, width = 18, height = 10, units = "cm")
+```
+
+
+
+
+```{r plot-top-phylum}
+asvs %>%
+  inner_join(taxonomy, by = 'seqid') %>%
+  merge(samples)%>%
+  group_by( topphylum, site, zone, sample_Identity, replicate)%>%
+  summarise(relab = sum(relab)/3) %>% 
+  #ungroup()%>%
+  
+ggplot(aes(
+    x = fct_relevel(site, c("19" , "20", "13" , "14" , "1" , "15" , "18" , "16" , "17" , "12" , "11" , "10" , "9" ,  "8" , "7" , "6" , "5" , "4", "3" , "2" )), 
+    y = relab, 
+    fill = fct_relevel(topphylum, "Other" , after = Inf))) +
+  geom_col() +
+  scale_fill_manual(values = myColors) +
+  coord_flip() +
+  facet_grid(. ~ factor(zone,levels = c("OX", "TR", "RZ")) , scales = "free_x")+
+  labs(title = "Top 20 Phylum")+
+  ylab("Relative Abundance")+
+  xlab("Site")+
+  theme(
+    legend.position = 'bottom', legend.title = element_blank()) +
+  guides(fill = guide_legend(reverse = TRUE))
+```
+
+```{r}
+ggsave("figures/LNUASS_Active_StackedBar_Top_20_phylum.pdf",scale = 2, width = 18, height = 10, units = "cm")
+```
+
+
+```{r}
+# Your existing code
+phylum_stacked_bars_data <- asvs %>%
+  inner_join(taxonomy, by = 'seqid') %>%
+  merge(samples) %>%
+  group_by(topphylum, site, zone, sample_Identity, replicate) %>%
+  summarise(relab = sum(relab)) %>%
+  ungroup()  # Remove grouping for the next step
+
+# Reshape data for table
+phylum_table_data <- phylum_stacked_bars_data %>%
+  pivot_wider(names_from = topphylum, values_from = relab, values_fill = 0)
+
+# Reorder rows based on the order of sites in the plot
+phylum_table_data <- phylum_table_data %>%
+  arrange(match(site, rev(c("19", "20", "13", "14", "1", "15", "18", "16", "17", "12", "11", "10", "9", "8", "7", "6", "5", "4", "3", "2"))))
+
+phylum_colSums <- phylum_table_data %>%
+  group_by(site, zone) %>%
+  summarise(across(everything(), mean, na.rm = TRUE), .groups = 'drop')
+
+# Print the table
+print(phylum_colSums)
+
+# Filter data for each zone
+phylum_table_data_OX <- phylum_colSums %>% filter(zone == "OX") %>%
+  arrange(match(site, rev(c("19", "20", "13", "14", "1", "15", "18", "16", "17", "12", "11", "10", "9", "8", "7", "6", "5", "4", "3", "2"))))
+phylum_table_data_TR <- phylum_colSums %>% filter(zone == "TR") %>% 
+  arrange(match(site, rev(c("19", "20", "13", "14", "1", "15", "18", "16", "17", "12", "11", "10", "9", "8", "7", "6", "5", "4", "3", "2"))))
+phylum_table_data_RZ <- phylum_colSums %>% filter(zone == "RZ") %>%
+  arrange(match(site, rev(c("19", "20", "13", "14", "1", "15", "18", "16", "17", "12", "11", "10", "9", "8", "7", "6", "5", "4", "3", "2"))))
+
+
+# Save each table as a CSV file
+write.csv(phylum_table_data_OX, "figures/LNUASS_phylum_relab_table_OX.csv", row.names = FALSE)
+write.csv(phylum_table_data_TR, "figures/LNUASS_phylum_relab_table_TR.csv", row.names = FALSE)
+write.csv(phylum_table_data_RZ, "figures/LNUASS_phylum_relab_table_RZ.csv", row.names = FALSE)
+```
+
+```{r anovas}
+#OX 
+phylum_stacked_bars_anovas <- asvs %>%
+  inner_join(taxonomy, by = 'seqid') %>%
+  merge(samples) %>%
+  group_by(topphylum, site, zone) %>%
+  summarise(relab = sum(relab)) %>%
+  ungroup()  # Remove grouping for the next step
+
+# Reshape data for table
+phylum_table_data_anovas <- phylum_stacked_bars_anovas %>%
+  pivot_wider(names_from = topphylum, values_from = relab, values_fill = 0)
+
+# Reorder rows based on the order of sites in the plot
+phylum_table_data_anovas <- phylum_table_data_anovas %>%
+  arrange(match(site, rev(c("19", "20", "13", "14", "1", "15", "18", "16", "17", "12", "11", "10", "9", "8", "7", "6", "5", "4", "3", "2"))))
+
+phylum_table_data_anovas_OX<- phylum_table_data_anovas %>% subset(zone == "OX")
+
+# Create a new variable 'region' based on the specified sites
+phylum_table_data_anovas <- phylum_table_data_anovas_OX %>%
+  mutate(region = ifelse(site %in% c(2,3,4,5,6,7,8,9,10), "A1", "A3A4A5"))
+
+# List of taxa columns
+taxa_columns <- colnames(phylum_table_data_anovas)[3:ncol(phylum_table_data_anovas)]
+
+# Initialize an empty data frame to store results
+anova_results <- data.frame(Taxon = character(),
+                            Zone = character(),
+                            Region = character(),
+                            F_value = numeric(),
+                            P_value = numeric(),
+                            stringsAsFactors = FALSE)
+
+# Loop through taxa and zones
+for (taxon in taxa_columns) {
+  for (zone in unique(phylum_table_data_anovas$zone)) {
+    # Filter data for the specific taxon and zone
+    data_subset <- phylum_table_data_anovas %>%
+      filter(zone == zone)
+
+    # Check the number of levels in the 'region' variable
+    if (length(unique(data_subset$region)) > 1) {
+      # Perform ANOVA
+      tryCatch({
+        anova_result <- aov(as.formula(paste(taxon, "~ region")), data = data_subset)
+
+        # Extract relevant information
+        result_row <- data.frame(
+          Taxon = taxon,
+          Zone = zone,
+          Region = "A1 vs A3A4A5",
+          F_value = round(summary(anova_result)[[1]]$`F value`[1], 4),
+          P_value = round(summary(anova_result)[[1]]$`Pr(>F)`[1], 4)
+        )
+
+        # Store results in the data frame
+        anova_results <- bind_rows(anova_results, result_row)
+      }, error = function(e) {
+        warning(paste("Error in ANOVA for", taxon, "and zone", zone, ":", e$message))
+      })
+    } else {
+      warning("Not enough variability in 'region' for ANOVA.")
+    }
+  } 
+}
+
+# Print the matrix of results
+print(anova_results)
+write.csv(anova_results, "figures/phyla_anova_results_OX.csv", row.names = FALSE)
+
+
+
+
+#TR 
+phylum_stacked_bars_anovas <- asvs %>%
+  inner_join(taxonomy, by = 'seqid') %>%
+  merge(samples) %>%
+  group_by(topphylum, site, zone) %>%
+  summarise(relab = sum(relab)) %>%
+  ungroup()  # Remove grouping for the next step
+
+# Reshape data for table
+phylum_table_data_anovas <- phylum_stacked_bars_anovas %>%
+  pivot_wider(names_from = topphylum, values_from = relab, values_fill = 0)
+
+# Reorder rows based on the order of sites in the plot
+phylum_table_data_anovas <- phylum_table_data_anovas %>%
+  arrange(match(site, rev(c("19", "20", "13", "14", "1", "15", "18", "16", "17", "12", "11", "10", "9", "8", "7", "6", "5", "4", "3", "2"))))
+
+phylum_table_data_anovas_TR<- phylum_table_data_anovas %>% subset(zone == "TR")
+
+# Create a new variable 'region' based on the specified sites
+phylum_table_data_anovas <- phylum_table_data_anovas_TR %>%
+  mutate(region = ifelse(site %in% c(2,3,4,5,6,7,8,9,10), "A1", "A3A4A5"))
+
+# List of taxa columns
+taxa_columns <- colnames(phylum_table_data_anovas)[3:ncol(phylum_table_data_anovas)]
+
+# Initialize an empty data frame to store results
+anova_results <- data.frame(Taxon = character(),
+                            Zone = character(),
+                            Region = character(),
+                            F_value = numeric(),
+                            P_value = numeric(),
+                            stringsAsFactors = FALSE)
+
+# Loop through taxa and zones
+for (taxon in taxa_columns) {
+  for (zone in unique(phylum_table_data_anovas$zone)) {
+    # Filter data for the specific taxon and zone
+    data_subset <- phylum_table_data_anovas %>%
+      filter(zone == zone)
+
+    # Check the number of levels in the 'region' variable
+    if (length(unique(data_subset$region)) > 1) {
+      # Perform ANOVA
+      tryCatch({
+        anova_result <- aov(as.formula(paste(taxon, "~ region")), data = data_subset)
+
+        # Extract relevant information
+        result_row <- data.frame(
+          Taxon = taxon,
+          Zone = zone,
+          Region = "A1 vs A3A4A5",
+          F_value = round(summary(anova_result)[[1]]$`F value`[1], 4),
+          P_value = round(summary(anova_result)[[1]]$`Pr(>F)`[1], 4)
+        )
+
+        # Store results in the data frame
+        anova_results <- bind_rows(anova_results, result_row)
+      }, error = function(e) {
+        warning(paste("Error in ANOVA for", taxon, "and zone", zone, ":", e$message))
+      })
+    } else {
+      warning("Not enough variability in 'region' for ANOVA.")
+    }
+  } 
+}
+
+# Print the matrix of results
+print(anova_results)
+write.csv(anova_results, "figures/phyla_anova_results_TR.csv", row.names = FALSE)
+
+
+#RZ
+ 
+phylum_stacked_bars_anovas <- asvs %>%
+  inner_join(taxonomy, by = 'seqid') %>%
+  merge(samples) %>%
+  group_by(topphylum, site, zone) %>%
+  summarise(relab = sum(relab)) %>%
+  ungroup()  # Remove grouping for the next step
+
+# Reshape data for table
+phylum_table_data_anovas <- phylum_stacked_bars_anovas %>%
+  pivot_wider(names_from = topphylum, values_from = relab, values_fill = 0)
+
+# Reorder rows based on the order of sites in the plot
+phylum_table_data_anovas <- phylum_table_data_anovas %>%
+  arrange(match(site, rev(c("19", "20", "13", "14", "1", "15", "18", "16", "17", "12", "11", "10", "9", "8", "7", "6", "5", "4", "3", "2"))))
+
+phylum_table_data_anovas_RZ<- phylum_table_data_anovas %>% subset(zone == "RZ")
+
+# Create a new variable 'region' based on the specified sites
+phylum_table_data_anovas <- phylum_table_data_anovas_RZ %>%
+  mutate(region = ifelse(site %in% c(2,3,4,5,6,7,8,9,10), "A1", "A3A4A5"))
+
+# List of taxa columns
+taxa_columns <- colnames(phylum_table_data_anovas)[3:ncol(phylum_table_data_anovas)]
+
+# Initialize an empty data frame to store results
+anova_results <- data.frame(Taxon = character(),
+                            Zone = character(),
+                            Region = character(),
+                            F_value = numeric(),
+                            P_value = numeric(),
+                            stringsAsFactors = FALSE)
+
+# Loop through taxa and zones
+for (taxon in taxa_columns) {
+  for (zone in unique(phylum_table_data_anovas$zone)) {
+    # Filter data for the specific taxon and zone
+    data_subset <- phylum_table_data_anovas %>%
+      filter(zone == zone)
+
+    # Check the number of levels in the 'region' variable
+    if (length(unique(data_subset$region)) > 1) {
+      # Perform ANOVA
+      tryCatch({
+        anova_result <- aov(as.formula(paste(taxon, "~ region")), data = data_subset)
+
+        # Extract relevant information
+        result_row <- data.frame(
+          Taxon = taxon,
+          Zone = zone,
+          Region = "A1 vs A3A4A5",
+          F_value = round(summary(anova_result)[[1]]$`F value`[1], 4),
+          P_value = round(summary(anova_result)[[1]]$`Pr(>F)`[1], 4)
+        )
+
+        # Store results in the data frame
+        anova_results <- bind_rows(anova_results, result_row)
+      }, error = function(e) {
+        warning(paste("Error in ANOVA for", taxon, "and zone", zone, ":", e$message))
+      })
+    } else {
+      warning("Not enough variability in 'region' for ANOVA.")
+    }
+  } 
+}
+
+# Print the matrix of results
+print(anova_results)
+write.csv(anova_results, "figures/phyla_anova_results_RZ.csv", row.names = FALSE)
+
+
+```
+
+
+
+```{r zone}
+phylum_stacked_bars_anovas <- asvs %>%
+  inner_join(taxonomy, by = 'seqid') %>%
+  merge(samples) %>%
+  group_by(topphylum, site, zone) %>%
+  summarise(relab = sum(relab)) %>%
+  ungroup()  # Remove grouping for the next step
+
+# Reshape data for table
+phylum_table_data_anovas <- phylum_stacked_bars_anovas %>%
+  pivot_wider(names_from = topphylum, values_from = relab, values_fill = 0)
+
+# Reorder rows based on the order of sites in the plot
+phylum_table_data_anovas <- phylum_table_data_anovas %>%
+  arrange(match(site, rev(c("19", "20", "13", "14", "1", "15", "18", "16", "17", "12", "11", "10", "9", "8", "7", "6", "5", "4", "3", "2"))))
+
+
+# Create a new variable 'region' based on the specified sites
+phylum_table_data_anovas <- phylum_table_data_anovas
+
+# List of taxa columns
+taxa_columns <- colnames(phylum_table_data_anovas)[3:ncol(phylum_table_data_anovas)]
+
+# Initialize an empty data frame to store results
+anova_results <- data.frame(
+  Taxon = character(),
+  Site = character(),
+  Zone = character(),
+  F_value = numeric(),
+  P_value = numeric(),
+  stringsAsFactors = FALSE
+)
+
+# Loop through sites
+for (site in unique(phylum_table_data_anovas$site)) {
+  # Loop through taxa
+  for (taxon in taxa_columns) {
+    # Get unique pairs of zones for each site
+    zone_pairs <- combn(unique(phylum_table_data_anovas$zone), 2, simplify = TRUE)
+
+    # Loop through each zone pair
+    for (pair in seq(ncol(zone_pairs))) {
+      zone1 <- zone_pairs[1, pair]
+      zone2 <- zone_pairs[2, pair]
+
+      # Filter data for the specific taxon, site, and pair of zones
+      data_subset <- phylum_table_data_anovas %>%
+        filter(site == site, zone %in% c(zone1, zone2))
+
+      # Check the number of levels in the 'zone' variable
+      if (length(unique(data_subset$zone)) == 2) {
+        # Perform ANOVA
+        tryCatch({
+  anova_result <- aov(as.formula(paste(taxon, " ~ zone + site")), data = data_subset)
+      
+  # Print ANOVA summary with taxon, site, and zone information
+      #cat("ANOVA summary for Taxon:", taxon, ", Site:", site, ", Zone:", paste(unique(data_subset$zone), collapse = ", "), "\n")
+       #   print(summary(anova_result))
+          
+          
+  # Extract relevant information
+  summary_table <- summary(anova_result)[[1]]
+  
+  # Extract F-value and p-value
+  f_value_col <- ifelse("F value" %in% colnames(summary_table), "F value", "F value")
+  p_value_col <- ifelse("Pr(>F)" %in% colnames(summary_table), "Pr(>F)", "Pr(>F)")
+
+  f_value <- summary_table[, f_value_col][1]
+  p_value <- summary_table[, p_value_col][1]
+          
+  # Store results in the data frame
+  result_row <- data.frame(
+    Taxon = taxon,
+    Site = site,
+    Zone = paste(unique(data_subset$zone), collapse = ", "),
+    F_value = round(summary(anova_result)[[1]]$`F value`[1], 6),
+    P_value = round(summary(anova_result)[[1]]$`Pr(>F)`[1], 6)
+  )
+
+  # Store results in the data frame
+  anova_results <- bind_rows(anova_results, result_row)
+}, error = function(e) {
+  warning(paste("Error in ANOVA for", taxon, "and site", site, ":", e$message))
+}
+)
+      } else {
+        warning("Not enough variability in 'zone' for ANOVA.")
+      }
+    }
+  } 
+}
+
+# Print the matrix of results
+print(anova_results)
+```
+
+```{r}
+write.csv(anova_results, "figures/phyla_anova_results_sites_zones.csv", row.names = FALSE)
+
+```
+
+
+
+
+
+
+### class here
+
+###looks at the top 20 class, 
+```{r, select top 20 most abundant class}
+# Select the 20 most abundant class
+seqtab %>%
+  inner_join(taxonomy, by = 'seqid')%>%
+  group_by(Class, sample)%>%
+  # Calculate the relative abundance of each class in each sample
+  summarise(relab = sum(relab))%>%
+  # Calculate the mean relative abundance of each class over the samples
+  summarise(mean_relab = sum(relab))%>%
+  ungroup() %>%
+  # Filter out non-assigned class
+  filter(!is.na(Class))%>%
+  # Select the top 20
+  top_n(20, mean_relab) -> t20_class
+```
+##print the top20 class table
+```{r print top20 class table}
+t20_class%>%
+ arrange(desc(mean_relab))->LNUASS_Active_t20_class_order_decending
+
+pdf("LNUASS_Active_class_top_20_relab_table.pdf", height=8, width=8)
+title <- "Overall, Top 20 Class, Relative Abundance"
+
+grid::grid.newpage()
+grid::grid.text(title,x = (.5), y = (0.9))
+grid.table(LNUASS_Active_t20_class_order_decending) 
+dev.off()
+```
+
+
+
+
+
+
+
+
+
+####class
+
+```{r assign-top10-class-to-taxonomy}
+# Start by finding the top 11 class *on average* over the samples
+p <- asvs %>%
+  inner_join(taxonomy, by = 'seqid') %>%
+  group_by(Class, sample) %>%
+  # Calculate the relative abundance of each class in each sample
+  summarise(relab = sum(relab)) %>%
+  # Calculate the *mean* relative abundance of each class over the samples
+  summarise(mean_relab = sum(relab)) %>%
+  ungroup() %>%
+  # Filter out non-assigned class
+  filter(!is.na(Class)) %>%
+  # Select the top 11
+  top_n(20, mean_relab)
+# Add this information to the taxonomy table as the column topclass
+taxonomy <- taxonomy %>%
+  # Join in the top 10 table. *Important* with left join, otherwise you loose rows in the
+  # taxonomy table that do not appear in the top 11 table.
+  left_join(
+    p %>% 
+      # Duplicate the class column, with the old name and as "topclass"
+      transmute(Class, topclass = Class),
+    by = 'Class'
+  ) %>%
+  # Set topclass to 'Other' for those that were not among the top 11
+  replace_na(list('topclass' = 'Other'))
+```
+
+```{r}
+asvs %>%
+  left_join(taxonomy, by = 'seqid') %>%
+  group_by(sample, Class) %>% summarise(relab = sum(relab)) %>% ungroup() %>%
+  spread(sample, relab, fill = 0) %>%
+  write_tsv('asvs.tsv')
+```
+
+```{r plot-top-class}
+asvs %>%
+  inner_join(taxonomy, by = 'seqid') %>%
+  group_by(topclass, sample) %>% summarise(relab = sum(relab)) %>% ungroup() %>%
+  ggplot(aes(
+    x = sample, 
+    y = relab, 
+    fill = fct_relevel(topclass, "Other" , after = Inf))) +
+  geom_col() +
+  scale_fill_manual(values = myColors) +
+  coord_flip() +
+  labs(title = "Top 20 Class")+
+  ylab("Relative Abundance")+
+  xlab("Site")+
+  theme(
+    legend.position = 'bottom', legend.title = element_blank()) +
+  guides(fill = guide_legend(reverse = TRUE))
+```
+
+```{r}
+ggsave("figures/LNUASS_Active_StackedBar_Top_20_class_indivSites.pdf",scale = 2, width = 18, height = 10, units = "cm")
+```
+
+
+
+
+```{r plot-top-class}
+asvs %>%
+  inner_join(taxonomy, by = 'seqid') %>%
+  merge(samples)%>%
+  group_by( topclass, site, zone, sample_Identity, replicate)%>%
+  summarise(relab = sum(relab)/3) %>% 
+  #ungroup()%>%
+  
+ggplot(aes(
+    x = fct_relevel(site, c("19" , "20", "13" , "14" , "1" , "15" , "18" , "16" , "17" , "12" , "11" , "10" , "9" ,  "8" , "7" , "6" , "5" , "4", "3" , "2" )), 
+    y = relab, 
+     fill = fct_relevel(topclass, "Other" , after = Inf))) +
+  geom_col() +
+  scale_fill_manual(values = myColors) +
+  coord_flip() +
+  facet_grid(. ~ factor(zone,levels = c("OX", "TR", "RZ")) , scales = "free_x")+
+  labs(title = "Top 20 Class")+
+  ylab("Relative Abundance")+
+  xlab("Site")+
+  theme(
+    legend.position = 'bottom', legend.title = element_blank() ) +
+  guides(fill = guide_legend(reverse = TRUE))
+```
+
+```{r}
+ggsave("figures/LNUASS_Active_StackedBar_Top_20_class.pdf",scale = 2, width = 18, height = 10, units = "cm")
+```
+
+
+### order here
+
+###looks at the top 20 order, 
+```{r, select top 20 most abundant order}
+# Select the 20 most abundant order
+seqtab %>%
+  inner_join(taxonomy, by = 'seqid')%>%
+  group_by(Order, sample)%>%
+  # Calculate the relative abundance of each order in each sample
+  summarise(relab = sum(relab))%>%
+  # Calculate the mean relative abundance of each order over the samples
+  summarise(mean_relab = sum(relab))%>%
+  ungroup() %>%
+  # Filter out non-assigned order
+  filter(!is.na(Order))%>%
+  # Select the top 20
+  top_n(20, mean_relab) -> t20_order
+```
+##print the top20 order table
+```{r print top20 order table}
+t20_order%>%
+ arrange(desc(mean_relab))->LNUASS_Active_t20_order_order_decending
+
+pdf("LNUASS_Active_order_top_20_relab_table.pdf", height=8, width=8)
+title <- "Overall, Top 20 Order, Relative Abundance"
+
+grid::grid.newpage()
+grid::grid.text(title,x = (.5), y = (0.9))
+grid.table(LNUASS_Active_t20_order_order_decending) 
+dev.off()
+```
+
+
+####order
+
+```{r assign-top10-order-to-taxonomy}
+# Start by finding the top 11 order *on average* over the samples
+p <- asvs %>%
+  inner_join(taxonomy, by = 'seqid') %>%
+  group_by(Order, sample) %>%
+  # Calculate the relative abundance of each order in each sample
+  summarise(relab = sum(relab)) %>%
+  # Calculate the *mean* relative abundance of each order over the samples
+  summarise(mean_relab = sum(relab)) %>%
+  ungroup() %>%
+  # Filter out non-assigned order
+  filter(!is.na(Order)) %>%
+  # Select the top 11
+  top_n(20, mean_relab)
+# Add this information to the taxonomy table as the column toporder
+taxonomy <- taxonomy %>%
+  # Join in the top 10 table. *Important* with left join, otherwise you loose rows in the
+  # taxonomy table that do not appear in the top 11 table.
+  left_join(
+    p %>% 
+      # Duplicate the order column, with the old name and as "toporder"
+      transmute(Order, toporder = Order),
+    by = 'Order'
+  ) %>%
+  # Set toporder to 'Other' for those that were not among the top 11
+  replace_na(list('toporder' = 'Other'))
+```
+
+```{r}
+asvs %>%
+  left_join(taxonomy, by = 'seqid') %>%
+  group_by(sample, Order) %>% summarise(relab = sum(relab)) %>% ungroup() %>%
+  spread(sample, relab, fill = 0) %>%
+  write_tsv('asvs.tsv')
+```
+
+```{r plot-top-order}
+asvs %>%
+  inner_join(taxonomy, by = 'seqid') %>%
+  group_by(toporder, sample) %>% summarise(relab = sum(relab)) %>% ungroup() %>%
+  ggplot(aes(
+    x = sample, 
+    y = relab, 
+    fill = fct_relevel(toporder, "Other" , after = Inf))) +
+  geom_col() +
+  scale_fill_manual(values = myColors) +
+  coord_flip() +
+  labs(title = "Top 20 Order")+
+  ylab("Relative Abundance")+
+  xlab("Site")+
+  theme(
+    legend.position = 'bottom', legend.title = element_blank()) +
+  guides(fill = guide_legend(reverse = TRUE))
+```
+
+```{r}
+ggsave("figures/LNUASS_Active_StackedBar_Top_20_order_indivSites.pdf",scale = 2, width = 18, height = 10, units = "cm")
+```
+
+
+
+
+```{r plot-top-order}
+asvs %>%
+  inner_join(taxonomy, by = 'seqid') %>%
+  merge(samples)%>%
+  group_by( toporder, site, zone, sample_Identity, replicate)%>%
+  summarise(relab = sum(relab)/3) %>% 
+  #ungroup()%>%
+  
+ggplot(aes(
+    x = fct_relevel(site, c("19" , "20", "13" , "14" , "1" , "15" , "18" , "16" , "17" , "12" , "11" , "10" , "9" ,  "8" , "7" , "6" , "5" , "4", "3" , "2" )), 
+    y = relab, 
+    fill = fct_relevel(toporder, "Other" , after = Inf))) +
+  geom_col() +
+  scale_fill_manual(values = myColors) +
+  coord_flip() +
+  facet_grid(. ~ factor(zone,levels = c("OX", "TR", "RZ")) , scales = "free_x")+
+  labs(title = "Top 20 Order")+
+  ylab("Relative Abundance")+
+  xlab("Site")+
+  theme(
+    legend.position = 'bottom', legend.title = element_blank()) +
+  guides(fill = guide_legend(reverse = TRUE))
+```
+
+```{r}
+ggsave("figures/LNUASS_Active_StackedBar_Top_20_order.pdf",scale = 2, width = 18, height = 10, units = "cm")
+```
+
+
+###Kingdom
+###looks at the top 20 kingdom, 
+```{r, select top 20 most abundant kingdom}
+# Select the 20 most abundant kingdom
+seqtab %>%
+  inner_join(taxonomy, by = 'seqid')%>%
+  group_by(Kingdom, sample)%>%
+  # Calculate the relative abundance of each kingdom in each sample
+  summarise(relab = sum(relab))%>%
+  # Calculate the mean relative abundance of each kingdom over the samples
+  summarise(mean_relab = sum(relab))%>%
+  ungroup() %>%
+  # Filter out non-assigned kingdom
+  filter(!is.na(Kingdom))%>%
+  # Select the top 20
+  top_n(20, mean_relab) -> t20_kingdom
+```
+##print the top20 kingdom table
+```{r print top20 kingdom table}
+t20_kingdom%>%
+ arrange(desc(mean_relab))->LNUASS_Active_t20_kingdom_kingdom_decending
+
+pdf("LNUASS_Active_kingdom_top_20_relab_table.pdf", height=8, width=8)
+title <- "Overall, Top 20 Kingdom, Relative Abundance"
+
+grid::grid.newpage()
+grid::grid.text(title,x = (.5), y = (0.9))
+grid.table(LNUASS_Active_t20_kingdom_kingdom_decending) 
+dev.off()
+```
+
+
+
+
+```{r assign-top10-kingdom-to-taxonomy}
+# Start by finding the top 11 kingdom *on average* over the samples
+p <- asvs %>%
+  inner_join(taxonomy, by = 'seqid') %>%
+  group_by(Kingdom, sample) %>%
+  # Calculate the relative abundance of each kingdom in each sample
+  summarise(relab = sum(relab)) %>%
+  # Calculate the *mean* relative abundance of each kingdom over the samples
+  summarise(mean_relab = sum(relab)) %>%
+  ungroup() %>%
+  # Filter out non-assigned kingdom
+  filter(!is.na(Kingdom)) %>%
+  # Select the top 11
+  top_n(20, mean_relab)
+# Add this information to the taxonomy table as the column topkingdom
+taxonomy <- taxonomy %>%
+  # Join in the top 10 table. *Important* with left join, otherwise you loose rows in the
+  # taxonomy table that do not appear in the top 11 table.
+  left_join(
+    p %>% 
+      # Duplicate the kingdom column, with the old name and as "topkingdom"
+      transmute(Kingdom, topkingdom = Kingdom),
+    by = 'Kingdom'
+  ) %>%
+  # Set topkingdom to 'Other' for those that were not among the top 11
+  replace_na(list('topkingdom' = 'Other'))
+```
+
+```{r}
+asvs %>%
+  left_join(taxonomy, by = 'seqid') %>%
+  group_by(sample, Kingdom) %>% summarise(relab = sum(relab)) %>% ungroup() %>%
+  spread(sample, relab, fill = 0) %>%
+  write_tsv('asvs.tsv')
+```
+
+```{r plot-top-kingdom}
+asvs %>%
+  inner_join(taxonomy, by = 'seqid') %>%
+  group_by(topkingdom, sample) %>% summarise(relab = sum(relab)) %>% ungroup() %>%
+  ggplot(aes(
+    x = sample, 
+    y = relab, 
+    fill = fct_relevel(topkingdom, "Other" , after = Inf))) +
+  geom_col() +
+  scale_fill_manual(values = myColors) +
+  coord_flip() +
+  labs(title = "Top 20 Kingdom")+
+  ylab("Relative Abundance")+
+  xlab("Site")+
+  theme(
+    legend.position = 'bottom', legend.title = element_blank()) +
+  guides(fill = guide_legend(reverse = TRUE))
+```
+
+```{r}
+ggsave("figures/LNUASS_Active_StackedBar_Top_20_kingdom_indivSites.pdf", scale = 2, width = 18, height = 10, units = "cm")
+```
+
+
+
+
+```{r plot-top-kingdom}
+asvs %>%
+  inner_join(taxonomy, by = 'seqid') %>%
+  merge(samples)%>%
+  group_by( topkingdom, site, zone, sample_Identity, replicate)%>%
+  summarise(relab = sum(relab)/3) %>% 
+  #ungroup()%>%
+  
+ggplot(aes(
+    x = fct_relevel(site, c("19" , "20", "13" , "14" , "1" , "15" , "18" , "16" , "17" , "12" , "11" , "10" , "9" ,  "8" , "7" , "6" , "5" , "4", "3" , "2" )), 
+    y = relab, 
+    fill = fct_relevel(topkingdom, "Other" , after = Inf))) +
+  geom_col() +
+  scale_fill_manual(values = myColors) +
+  coord_flip() +
+  facet_grid(. ~ factor(zone,levels = c("OX", "TR", "RZ")) , scales = "free_x")+
+  labs(title = "Top 20 Kingdom")+
+  ylab("Relative Abundance")+
+  xlab("Site")+
+  theme(
+    legend.position = 'bottom', legend.title = element_blank()) +
+  guides(fill = guide_legend(reverse = TRUE))
+```
+
+```{r}
+ggsave("figures/LNUASS_Active_StackedBar_Top_20_kingdom.pdf", scale = 2, width = 18, height = 10, units = "cm")
+```
+
+### domain here
+
+###looks at the top 20 domain, 
+```{r, select top 20 most abundant domain}
+# Select the 20 most abundant domain
+seqtab %>%
+  inner_join(taxonomy, by = 'seqid')%>%
+  group_by(Domain, sample)%>%
+  # Calculate the relative abundance of each domain in each sample
+  summarise(relab = sum(relab))%>%
+  # Calculate the mean relative abundance of each domain over the samples
+  summarise(mean_relab = sum(relab))%>%
+  ungroup() %>%
+  # Filter out non-assigned domain
+  filter(!is.na(Domain))%>%
+  # Select the top 20
+  top_n(20, mean_relab) -> t20_domain
+```
+##print the top20 domain table
+```{r print top20 domain table}
+t20_domain%>%
+ arrange(desc(mean_relab))->LNUASS_Active_t20_domain_domain_decending
+
+pdf("LNUASS_Active_domain_top_20_relab_table.pdf", height=8, width=8)
+title <- "Overall, Top 20 Domain, Relative Abundance"
+
+grid::grid.newpage()
+grid::grid.text(title,x = (.5), y = (0.9))
+grid.table(LNUASS_Active_t20_domain_domain_decending) 
+dev.off()
+```
+
+
+
+
+
+
+####domain
+
+```{r assign-top10-domain-to-taxonomy}
+# Start by finding the top 11 domain *on average* over the samples
+p <- asvs %>%
+  inner_join(taxonomy, by = 'seqid') %>%
+  group_by(Domain, sample) %>%
+  # Calculate the relative abundance of each domain in each sample
+  summarise(relab = sum(relab)) %>%
+  # Calculate the *mean* relative abundance of each domain over the samples
+  summarise(mean_relab = sum(relab)) %>%
+  ungroup() %>%
+  # Filter out non-assigned domain
+  filter(!is.na(Domain)) %>%
+  # Select the top 11
+  top_n(20, mean_relab)
+# Add this information to the taxonomy table as the column topdomain
+taxonomy <- taxonomy %>%
+  # Join in the top 10 table. *Important* with left join, otherwise you loose rows in the
+  # taxonomy table that do not appear in the top 11 table.
+  left_join(
+    p %>% 
+      # Duplicate the domain column, with the old name and as "topdomain"
+      transmute(Domain, topdomain = Domain),
+    by = 'Domain'
+  ) %>%
+  # Set topdomain to 'Other' for those that were not among the top 11
+  replace_na(list('topdomain' = 'Other'))
+```
+
+```{r}
+asvs %>%
+  left_join(taxonomy, by = 'seqid') %>%
+  group_by(sample, Domain) %>% summarise(relab = sum(relab)) %>% ungroup() %>%
+  spread(sample, relab, fill = 0) %>%
+  write_tsv('asvs.tsv')
+```
+
+```{r plot-top-domain}
+asvs %>%
+  inner_join(taxonomy, by = 'seqid') %>%
+  group_by(topdomain, sample) %>% summarise(relab = sum(relab)) %>% ungroup() %>%
+  ggplot(aes(
+    x = sample, 
+    y = relab, 
+    fill = fct_relevel(topdomain, "Other" , after = Inf))) +
+  geom_col() +
+  scale_fill_manual(values = myColors) +
+  coord_flip() +
+  labs(title = "Top 20 Domain")+
+  ylab("Relative Abundance")+
+  xlab("Site")+
+  theme(
+    legend.position = 'bottom', legend.title = element_blank()) +
+  guides(fill = guide_legend(reverse = TRUE))
+```
+
+```{r}
+ggsave("figures/LNUASS_Active_StackedBar_Top_20_domain_indivSites.pdf", scale = 2, width = 18, height = 10, units = "cm")
+```
+
+
+
+
+```{r plot-top-domain}
+asvs %>%
+  inner_join(taxonomy, by = 'seqid') %>%
+  merge(samples)%>%
+  group_by( topdomain, site, zone, sample_Identity, replicate)%>%
+  summarise(relab = sum(relab)/3) %>% 
+  #ungroup()%>%
+  
+ggplot(aes(
+    x = fct_relevel(site, c("19" , "20", "13" , "14" , "1" , "15" , "18" , "16" , "17" , "12" , "11" , "10" , "9" ,  "8" , "7" , "6" , "5" , "4", "3" , "2" )), 
+    y = relab, 
+    fill = fct_relevel(topdomain, "Other" , after = Inf))) +
+  geom_col() +
+  scale_fill_manual(values = myColors) +
+  coord_flip() +
+  facet_grid(. ~ factor(zone,levels = c("OX", "TR", "RZ")) , scales = "free_x")+
+  labs(title = "Top 20 Domain")+
+  ylab("Relative Abundance")+
+  xlab("Site")+
+  theme(
+    legend.position = 'bottom', legend.title = element_blank()) +
+  guides(fill = guide_legend(reverse = TRUE))
+```
+
+```{r}
+ggsave("figures/LNUASS_Active_StackedBar_Top_20_domain.pdf", scale = 2, width = 18, height = 10, units = "cm")
+```
+
+
+
+```{r simple NMDS}
+
+
+feature_table <- read_csv("LNUASS_Active_ASV_table_Clean.csv",
+  col_types = cols(.default = col_double(), seqid = col_character()))
+
+T_otu_mat <- feature_table %>% tibble::column_to_rownames("seqid") %>% as.matrix() %>% t()
+
+
+tax_mat <- taxonomy %>% tibble::column_to_rownames("seqid") %>% as.matrix()
+
+samples_nmds <- samples %>% tibble::column_to_rownames("sample") %>% as.matrix() %>% subset(select= c(-site))
+
+# Shannon's H' library(vegan)
+H<-diversity(T_otu_mat)
+
+# Observed Richness
+richness<-specnumber(T_otu_mat)
+
+# Pielou's Evenness
+evenness<- H/log(richness)
+
+# Create alpha diversity dataframe including environmental data pH + Temp + Zone_depth_START_cm + Zone_size_cm + LOI + Ti_AR + S_AR + Fe_HCL_soluble + Fe_AR + Fe3_mgKg + Fe2_mgKg + Na_H2O_mgKg
+alpha <- cbind(shannon = H, richness = richness, pielou = evenness, samples_nmds) 
+
+alpha<-data.frame(sample= row.names(alpha), alpha)
+
+head(alpha)
+
+repl_LNUASS_active.mdf<- T_otu_mat
+
+LNUASS_active.bray<- vegdist(repl_LNUASS_active.mdf, method = "bray")
+
+LNUASS_active.bray
+
+LNUASS_active.jac <- vegdist(repl_LNUASS_active.mdf, method = "jaccard" , binary = T)
+
+LNUASS_active.jac
+
+###PCOA
+
+# calculate principal coordinates analysis (Bray-Curtis)
+pcoa.LNUASS_active.bray <- cmdscale(LNUASS_active.bray, k = 2, eig = T)
+
+# extract axis positions for each site from cmdscale object and create a dataframe for plotting
+pcoa.LNUASS_active.bray.plotting <- as.data.frame(pcoa.LNUASS_active.bray$points)
+colnames(pcoa.LNUASS_active.bray.plotting) <- c("axis_1", "axis_2")
+pcoa.LNUASS_active.bray.plotting$site <- rownames(pcoa.LNUASS_active.bray.plotting)
+
+pcoa.LNUASS_active.bray.plotting <- cbind(pcoa.LNUASS_active.bray.plotting, samples_nmds)
+#%>%select (axis_1, axis_2, pH , Temp , Zone_depth_START_cm , Zone_size_cm , LOI_% , Ti_AR , S_AR , Fe_HCL_soluble , Fe_AR , Fe3_mgKg , Fe2_mgKg)
+
+# calculate the proportion of variance in the data which is explained by the first two PCoA axes
+pcoa.LNUASS_active.bray$eig[1]/(sum(pcoa.LNUASS_active.bray$eig))
+# resulting value is the Xlab 
+```
+```{r}
+pcoa.LNUASS_active.bray$eig[2]/(sum(pcoa.LNUASS_active.bray$eig))
+#resulting value is the ylab 
+```
+```{r}
+# create a PCoA plot
+pcoa.LNUASS_active.bray.plot <- ggplot(pcoa.LNUASS_active.bray.plotting, aes(x = axis_1, y = axis_2)) +
+  geom_point(aes(colour = regions, shape = zone), size= 1.5) +
+  #geom_text_repel(aes(label = N_to_S_Site_names, element_text = 5),
+   #               max.overlaps = Inf,
+    #              min.segment.length = 0,
+     #             box.padding   = 0.35,
+      #            point.padding = 0.5,
+       #           segment.color = 'grey50') +
+   scale_fill_manual(values = myColors) +
+  theme_bw() + 
+  theme(plot.title =element_text(size= 5),
+        axis.text = element_text(size= 5),)+
+    labs(title = "Beta Diversity")+
+    xlab("PCA 1 (10.1%)") +
+    ylab("PCA 2 (6.3%)") +
+    annotate(geom = 'text', label = 'Bray-Curtis', x = -.35, y = .45, hjust = .8, vjust = -1)
+
+plot(pcoa.LNUASS_active.bray.plot)
+```
+
+```{r}
+ggsave("figures/Figure_1_nmds_no_normalization.pdf")
+```
+
+
+
+```{r}
+plot.shan <- ggplot(alpha, aes(
+  x = regions, 
+  y = as.numeric(shannon), 
+  colour = regions,
+  shape = zone)) +
+  geom_boxplot() +
+  #geom_point(size = 1.5) +
+  scale_fill_manual(values = myColors) +
+  labs(title = "Shannon's H'")+
+  ylab("") + 
+  xlab("") +
+  theme_bw() +
+  theme(plot.title =element_text(size= 5),
+        axis.text = element_text(size= 5),
+        axis.text.x = element_text(angle = 90, hjust = .5, vjust = 1))
+
+plot.rich <-ggplot(alpha, aes(
+  x = regions, 
+  y = as.numeric(richness), 
+  colour = regions,
+  shape = zone)) +
+  geom_boxplot() +
+  #geom_point(size = 1.5) +
+  scale_fill_manual(values = myColors) +
+  labs( title = "Species Richness")+
+  ylab("") +
+  xlab("") +
+  theme_bw() +
+  theme(plot.title =element_text(size= 5),
+        axis.text = element_text(size= 5),
+        axis.text.x = element_text(angle = 90, hjust = .5, vjust = 1))
+
+plot.even <- ggplot(alpha, aes(
+  x = regions, 
+  y = as.numeric(evenness), 
+  colour = regions,
+  shape = zone)) +
+  geom_boxplot() +
+  #geom_point(size = 1.5) +
+  scale_fill_manual(values = myColors) +
+  labs(title = "Pielou's Evenness")+
+  ylab("") +
+  xlab("") +
+  theme_bw() +
+  theme(plot.title =element_text(size= 5),
+        axis.text = element_text(size= 5),
+        axis.text.x = element_text(angle = 90, hjust = .5, vjust = 1))
+
+
+ggarrange (plot.shan ,
+             plot.rich , 
+             plot.even , 
+           common.legend = TRUE,
+           legend = "bottom",
+           nrow= 1)
+
+
+
+```
+
+
+
+
+```{r}
+diversity_plots<- grid.arrange (pcoa.LNUASS_active.bray.plot + theme(legend.position = 'bottom'),
+              arrangeGrob(plot.shan + theme(legend.position = "none"),
+                          plot.rich + theme(legend.position = "none"), 
+                          plot.even + theme(legend.position = "none"),
+                          nrow= 1),
+              nrow = 1)
+```
+```{r}
+ggsave("figures/Figure_1_NMDS_and_diversity_plots.pdf",diversity_plots, width = 18, height = 10, units = "cm")
+```
+
+
+```{r diversity statistics, all regions and zones}
+
+shannon_anova <- aov(shannon ~ regions + zone , data = alpha)
+richness_anova <- aov( richness ~ regions + zone, data = alpha)
+pielou_anova <- aov(pielou ~ regions + zone, data = alpha)
+
+shannon_tukey <- shannon_anova %>% TukeyHSD()
+richness_tukey <- richness_anova %>% TukeyHSD()
+pielou_tukey <- pielou_anova %>% TukeyHSD()
+
+
+summary(shannon_anova)
+print(shannon_tukey)
+summary(richness_anova)
+print(richness_tukey)
+summary(pielou_anova)
+print(pielou_tukey)
+```
+
+```{r, div stats, regions by region zone ox }
+alpha_OX <- subset( alpha, zone == "OX")
+
+shannon_anova_OX <- aov(shannon ~ regions , data = alpha_OX)
+richness_anova_OX <- aov( richness ~ regions , data = alpha_OX)
+pielou_anova_OX <- aov(pielou ~ regions , data = alpha_OX)
+
+shannon_tukey_OX <- shannon_anova_OX %>% TukeyHSD()
+richness_tukey_OX <- richness_anova_OX %>% TukeyHSD()
+pielou_tukey_OX <- pielou_anova_OX %>% TukeyHSD()
+
+
+summary(shannon_anova_OX)
+print(shannon_tukey_OX)
+summary(richness_anova_OX)
+print(richness_tukey_OX)
+summary(pielou_anova_OX)
+print(pielou_tukey_OX)
+
+```
+
+
+
+```{r, div stats, regions by region zone TR }
+alpha_TR <- subset( alpha, zone == "TR")
+
+shannon_anova_TR <- aov(shannon ~ regions , data = alpha_TR)
+richness_anova_TR <- aov( richness ~ regions , data = alpha_TR)
+pielou_anova_TR <- aov(pielou ~ regions , data = alpha_TR)
+
+shannon_tukey_TR <- shannon_anova_TR %>% TukeyHSD()
+richness_tukey_TR <- richness_anova_TR %>% TukeyHSD()
+pielou_tukey_TR <- pielou_anova_TR %>% TukeyHSD()
+
+
+summary(shannon_anova_TR)
+print(shannon_tukey_TR)
+summary(richness_anova_TR)
+print(richness_tukey_TR)
+summary(pielou_anova_TR)
+print(pielou_tukey_TR)
+
+```
+
+
+```{r, div stats, regions by region zone RZ }
+alpha_RZ <- subset( alpha, zone == "RZ")
+
+shannon_anova_RZ <- aov(shannon ~ regions , data = alpha_RZ)
+richness_anova_RZ <- aov( richness ~ regions , data = alpha_RZ)
+pielou_anova_RZ <- aov(pielou ~ regions , data = alpha_RZ)
+
+shannon_tukey_RZ <- shannon_anova_RZ %>% TukeyHSD()
+richness_tukey_RZ <- richness_anova_RZ %>% TukeyHSD()
+pielou_tukey_RZ <- pielou_anova_RZ %>% TukeyHSD()
+
+
+summary(shannon_anova_RZ)
+print(shannon_tukey_RZ)
+summary(richness_anova_RZ)
+print(richness_tukey_RZ)
+summary(pielou_anova_RZ)
+print(pielou_tukey_RZ)
+
+```
+
+
+
+
+
+
+
+
+
+
+
+#reset the ASVS 
+
+```{r read-counts-data }
+# Read the ASV table and turn it long without zeroes
+asvs <- read_csv("LNUASS_Active_ASV_table_Clean.csv",
+  col_types = cols(.default = col_double(), seqid = col_character())) %>%
+  gather(sample, count, 2:162) %>%
+  # Take away rows with zero count
+  filter(count > 0) %>%
+  # Take away samples with less than 500 observations (this is an arbitrary choice 
+  # to get rid of samples with very low sequencing depth). 
+    #due to low seq depth, samples with less than 500 obsv were not filtered
+  #group_by(sample) %>% 
+  #filter(sum(count) >= 500) %>% 
+  ungroup()
+```
+
+
+
+
+## Calculate hellinger
+
+We want to have a new column called `hel` in the asvs table but the ASVS table need to be renewed following use with the HEL RDA.
+
+```{r calc-hel, this takes a while}
+# This *adds a hel column* to the asvs table.
+# Note that the assignment to "asvs" is last and uses the -> assignment operator.  
+# Since all combinations of sample and seqid will now get a value, hel, the number of rows
+# increases quite a lot.
+asvs_HEL <- asvs %>%
+  # Make the table wide with samples as columns
+  spread(sample, count, fill = 0) %>%
+  # Move the seqid to rowname; this requires a data.frame()
+  data.frame() %>% tibble::column_to_rownames('seqid')%>%
+  # Replace zeroes with probabilities (pseudocounts) (I needed a slightly lower delta than default
+  # not to get negative values) thus CZM in original script. what about geometric bayseian multiplicative(GBM)
+   cmultRepl(method = 'CZM', delta = 0.5, output = 'p-counts')%>%
+  # Calculate the hel
+  decostand(method = "hellinger") %>%
+  data.frame() %>%
+  tibble::rownames_to_column('sample')%>%
+  gather(seqid, hel, 2:ncol(.)) %>%
+  # Get rid of 'X' that sometimes precedes the seqid and join back with original table
+  mutate(seqid = sub('^X', '', seqid)) %>%
+  left_join(asvs, by = c('sample', 'seqid')) %>%
+  # Set count to 0 if it's NA
+  replace_na(list(count = 0))
+
+  colnames(asvs_HEL)[2] <- "asv"
+  colnames(asvs_HEL)[1] <- "seqid"
+  colnames(asvs_HEL)[2] <- "sample"
+```
+
+```{r calc-pca}
+asvs_HEL %>% 
+  # Standard Vegan transformation: Turn table with with samples as *rows*
+  dplyr::select(sample, seqid, hel) %>%
+  spread(seqid, hel) %>%
+  # Turn into a numeric matrix
+  tibble::column_to_rownames('sample') %>% as.matrix() %>%
+  # And call Vegan's rda function that will just do pca unless you give it a 
+  # a second argument (constraining matrix)
+  vegan::rda() -> pca
+```
+
+What's returned by the `rda` funtion is a list object that can be plotted with the base `plot`
+function, but we can also pick out the necessary parts to make a PCA *biplot* of samples and ASVs
+using `ggplot2`.
+
+```{r pca-biplot, fig.height = 6, fig.cap = 'PCA of the samples. Coloured circles are the samples, and black dots the ASVs positions in the PCA coordinate system.'}
+pca.samples <- pca$CA$u %>% data.frame() %>% tibble::rownames_to_column('sample')
+pca.asvs    <- pca$CA$v %>% data.frame() %>% tibble::rownames_to_column('seqid')
+pca.eigs    <- pca$CA$eig %>% data.frame() %>% tibble::rownames_to_column('pc') 
+  colnames(pca.eigs)[2] <- "eigval" 
+pca.eigs <- pca.eigs %>% mutate(propexpl = eigval/sum(eigval))
+# We use the pca.samples table as the "main" table when calling ggplot.
+# Let's first join it with the samples table so we can use some metadata
+# for colouring.
+pca.samples %>%
+  inner_join(samples, by = 'sample')%>%
+  ggplot(aes(x = PC1, y = PC2)) +
+    # Plot the ASVs *behind* the samples, i.e. first
+    geom_point(data = pca.asvs, size = .1) +
+    # Points for samples, coloured by site names, shape by zone
+    geom_point(aes(colour = regions , shape = zone)) +
+  geom_text_repel(aes(label = N_to_S_Site_names, element_text = 5),
+                  max.overlaps = Inf,
+                  min.segment.length = 0,
+                  box.padding   = 0.35,
+                  point.padding = 0.5,
+                  segment.color = 'grey50') +
+    scale_color_manual(values = myColors) +
+    xlab(sprintf("PC1 (%2.1f%% explained)", pca.eigs[1,3] * 100)) +
+    ylab(sprintf("PC2 (%2.1f%% explained)", pca.eigs[2,3] * 100)) 
+```
+
+
+## Proper RDA with sample data, using HEL data
+
+Below, I'm selecting three variables from the metadata, average soil relative humidity, average soil
+temperature (both continuous) and vegetation (categorical, i.e. yes or no).
+
+
+```{r calc-rda-2vars}
+# Create a matrix object; we need it named, can't generate one on "the fly"
+asvs_HEL %>% dplyr::select(sample, seqid, hel) %>%
+  spread(seqid, hel) %>% tibble::column_to_rownames('sample') -> asv_matrix
+# Here's the call to the rda function with a formula as the first argument,
+#   + Zone_depth_START_cm + Zone_size_cm + pH + Na_H2O_mgKg     (removed)
+vegan::rda(
+  asv_matrix ~ OX + TR + RZ + pH + LOI + Temp + S_AR + Fe3_mgKg + Fe2_mgKg , data = samples %>%
+    semi_join(asvs, by = 'sample') %>%
+    #replace_na(list('LOI' = 0.01)) %>%
+    tibble::column_to_rownames('sample')
+) -> rda
+
+```
+
+The results of an RDA analysis can be plotted as a *triplot* with arrows pointing in the direction
+of the environmental parameters (`r figr('rda-triplot', T, type = 'Figure')`). (Usually categorical
+variables are plotted as points and not as arrows as in my figure.)
+
+```{r rda-triplot, fig.height = 6, fig.cap = 'Redundancy analysis (RDA). Samples are plotted together with vectors indicating the influence of the three factors included in the analysis. *Note 1*: Many samples got the same coordinates, and are hence plotted on top of each other. *Note 2*: that the lengths of the factor vectors were divided by four to fit inside the plot. They should hence only be interpreted as directions.'}
+# I need to collect some temporary data sets for the plot
+# This one will contain the proportions explained which we get by dividing the
+# eigenvalue of each component with the sum of eigenvalues for all components.
+p <- c(rda$CCA$eig, rda$CA$eig)/sum(c(rda$CCA$eig, rda$CA$eig))
+
+# This one is collecting the coordinates for arrows that will depict how the 
+# factors in our model point in the coordinate
+a <- rda$CCA$biplot %>% data.frame() %>% tibble::rownames_to_column('factor')
+
+rda$CCA$u %>% data.frame() %>% tibble::rownames_to_column('sample') %>%
+  inner_join(samples, by = 'sample') %>%
+  ggplot(aes(x = RDA1, y = RDA2)) +
+     geom_point(aes(colour = regions , shape = zone)) +
+  #geom_text_repel(aes(label = N_to_S_Site_names, element_text = 5),
+   #               max.overlaps = Inf,
+    #              min.segment.length = 0,
+     #             box.padding   = 0.35,
+      #            point.padding = 0.5,
+       #           segment.color = 'grey50') +
+    scale_color_manual(values = myColors) +
+    xlab(sprintf("RDA1 (%2.1f%% explained)", p[[1]] * 100)) +
+    ylab(sprintf("RDA2 (%2.1f%% explained)", p[[2]] * 100)) +
+    
+    geom_segment(
+      data = a, mapping = aes(xend = RDA1/4, yend = RDA2/4), 
+      x = 0, y = 0, arrow = arrow()
+    ) +
+    # Print the names of factors halfway along the arrows
+    geom_text(
+      data = a, mapping = aes(x = RDA1/8, y = RDA2/8, label = factor), 
+      size = 3)
+  
+```
+```{r}
+ggsave("figures/Figure_2_RDA_HEL_ENv.pdf", width = 18, height = 10, units = "cm")
+```
+
+
+
+##split the RDA by zones : oxidized zones, transition zones, reduced zones
+
+
+## Calculate hellinger of Oxidized zone
+
+We want to have a new column called `hel` in the asvs table but the ASVS table need to be renewed following use with the HEL RDA.
+first subset the data to remove the all data except for the target zone 
+
+```{r}
+asvs_OX <- asvs %>% 
+  merge(samples) 
+
+asvs_OX <- subset( asvs_OX, zone == "OX") %>%
+  subset(select = c(seqid, sample, count))
+
+samples_OX <- subset( samples, zone == "OX")
+```
+
+
+
+
+
+```{r calc-hel, this takes a while}
+# This *adds a hel column* to the asvs table.
+# Note that the assignment to "asvs" is last and uses the -> assignment operator.  
+# Since all combinations of sample and seqid will now get a value, hel, the number of rows
+# increases quite a lot.
+asvs_HEL_OX <- asvs_OX %>%
+  # Make the table wide with samples as columns
+  spread(sample, count, fill = 0) %>%
+  # Move the seqid to rowname; this requires a data.frame()
+  data.frame() %>% tibble::column_to_rownames('seqid')%>%
+  
+  cmultRepl(method = 'CZM', delta = 0.5, output = 'p-counts')%>%
+  # Calculate the hel
+  decostand(method = "hellinger") %>%
+  data.frame() %>%
+  tibble::rownames_to_column('sample') %>%
+  gather(seqid, hel, 2:ncol(.)) %>%
+  # Get rid of 'X' that sometimes precedes the seqid and join back with original table
+  mutate(seqid = sub('^X', '', seqid)) %>%
+  left_join(asvs, by = c('sample', 'seqid')) %>%
+  # Set count to 0 if it's NA
+  replace_na(list(count = 0))
+
+    colnames(asvs_HEL_OX)[2] <- "asv"
+  colnames(asvs_HEL_OX)[1] <- "seqid"
+  colnames(asvs_HEL_OX)[2] <- "sample"
+
+```
+
+
+
+## Proper RDA with sample data, using HEL data
+
+Below, I'm selecting three variables from the metadata, average soil relative humidity, average soil
+temperature (both continuous) and vegetation (categorical, i.e. yes or no).
+
+
+```{r calc-rda-2vars}
+# Create a matrix object; we need it named, can't generate one on "the fly"
+asvs_HEL_OX %>% dplyr::select(seqid, sample, hel) %>%
+  spread(seqid, hel) %>% tibble::column_to_rownames('sample') -> asv_matrix_OX
+# Here's the call to the rda function with a formula as the first argument,
+# + Zone_depth_START_cm + Zone_size_cm  + S_AR + Fe3_mgKg + Fe2_mgKg + OX + TR + RZ + Na_H2O_mgKg (removed)
+vegan::rda(
+  asv_matrix_OX ~ pH +  Temp + LOI + Ti_AR  + S_AR + Fe3_mgKg + Fe2_mgKg , data = samples_OX %>%
+    semi_join(asvs, by = 'sample') %>%
+    #replace_na(list('LOI' = 0.01)) %>%
+    tibble::column_to_rownames('sample')
+) -> rda_HEL_OX
+
+```
+
+The results of an RDA analysis can be plotted as a *triplot* with arrows pointing in the direction
+of the environmental parameters (`r figr('rda-triplot', T, type = 'Figure')`). (Usually categorical
+variables are plotted as points and not as arrows as in my figure.)
+
+```{r rda-triplot, fig.height = 6, fig.cap = 'Redundancy analysis (RDA). Samples are plotted together with vectors indicating the influence of the three factors included in the analysis. *Note 1*: Many samples got the same coordinates, and are hence plotted on top of each other. *Note 2*: that the lengths of the factor vectors were divided by four to fit inside the plot. They should hence only be interpreted as directions.'}
+# I need to collect some temporary data sets for the plot
+# This one will contain the proportions explained which we get by dividing the
+# eigenvalue of each component with the sum of eigenvalues for all components.
+p <- c(rda_HEL_OX$CCA$eig, rda_HEL_OX$CA$eig)/sum(c(rda_HEL_OX$CCA$eig, rda_HEL_OX$CA$eig))
+
+# This one is collecting the coordinates for arrows that will depict how the 
+# factors in our model point in the coordinate
+a <- rda_HEL_OX$CCA$biplot %>% data.frame() %>% tibble::rownames_to_column('factor')
+
+rda_HEL_OX$CCA$u %>% data.frame() %>% tibble::rownames_to_column('sample') %>%
+  inner_join(samples, by = 'sample') %>%
+  ggplot(aes(x = RDA1, y = RDA2)) +
+     geom_point(aes(colour = regions , shape = zone)) +
+  #geom_text_repel(aes(label = N_to_S_Site_names, element_text = 5),
+   #               max.overlaps = Inf,
+    #              min.segment.length = 0,
+     #             box.padding   = 0.35,
+      #            point.padding = 0.5,
+       #           segment.color = 'grey50') +
+    scale_color_manual(values = myColors) +
+    xlab(sprintf("RDA1 (%2.1f%% explained)", p[[1]] * 100)) +
+    ylab(sprintf("RDA2 (%2.1f%% explained)", p[[2]] * 100)) +
+    
+    geom_segment(
+      data = a, mapping = aes(xend = RDA1, yend = RDA2), 
+      x = 0, y = 0, arrow = arrow()
+    ) +
+    # Print the names of factors halfway along the arrows
+    geom_text(
+      data = a, mapping = aes(x = RDA1, y = RDA2, label = factor), 
+      size = 3)
+  
+```
+
+```{r}
+ggsave("figures/Figure_2_RDA_HEL_ENV_OX.pdf", width = 18, height = 10, units = "cm")
+```
+
+## Calculate hellinger of Transition zone
+
+We want to have a new column called `hel` in the asvs table but the ASVS table need to be renewed following use with the HEL RDA.
+first subset the data to remove the all data except for the target zone 
+
+```{r}
+asvs_TR <- asvs %>% 
+  merge(samples) 
+
+asvs_TR <- subset( asvs_TR, zone == "TR") %>%
+  subset(select = c(seqid, sample, count))
+
+samples_TR <- subset( samples, zone == "TR")
+```
+
+
+
+
+
+```{r calc-hel, this takes a while}
+# This *adds a hel column* to the asvs table.
+# Note that the assignment to "asvs" is last and uses the -> assignment operator.  
+# Since all combinations of sample and seqid will now get a value, hel, the number of rows
+# increases quite a lot.
+asvs_HEL_TR <- asvs_TR %>%
+  # Make the table wide with samples as columns
+  spread(sample, count, fill = 0) %>%
+  # Move the seqid to rowname; this requires a data.frame()
+  data.frame() %>% tibble::column_to_rownames('seqid')%>%
+ 
+  cmultRepl(method = 'CZM', delta = 0.5, output = 'p-counts')%>%
+  # Calculate the hel
+  decostand(method = "hellinger") %>%
+  data.frame() %>%
+  tibble::rownames_to_column('sample') %>%
+  gather(seqid, hel, 2:ncol(.)) %>%
+  # Get rid of 'X' that sometimes precedes the seqid and join back with original table
+  mutate(seqid = sub('^X', '', seqid)) %>%
+  left_join(asvs, by = c('sample', 'seqid')) %>%
+  # Set count to 0 if it's NA
+  replace_na(list(count = 0)) 
+   
+   colnames(asvs_HEL_TR)[2] <- "asv"
+  colnames(asvs_HEL_TR)[1] <- "seqid"
+  colnames(asvs_HEL_TR)[2] <- "sample"
+  
+```
+
+
+
+## Proper RDA with sample data, using HEL data
+
+Below, I'm selecting three variables from the metadata, average soil relative humidity, average soil
+temperature (both continuous) and vegetation (categorical, i.e. yes or no).
+
+
+```{r calc-rda-2vars}
+# Create a matrix object; we need it named, can't generate one on "the fly"
+asvs_HEL_TR %>% dplyr::select(sample, seqid, hel) %>%
+  spread(seqid, hel) %>% tibble::column_to_rownames('sample') -> asv_matrix_TR
+# Here's the call to the rda function with a formula as the first argument,
+#  + Zone_depth_START_cm + Zone_size_cm + TR + S_AR + Fe3_mgKg + Fe2_mgKg + Na_H2O_mgKg(removed )
+vegan::rda(
+  asv_matrix_TR ~ pH + Temp + LOI + Ti_AR + S_AR + Fe3_mgKg + Fe2_mgKg, data = samples_TR %>%
+    semi_join(asvs, by = 'sample') %>%
+    #replace_na(list('LOI' = 0.01)) %>%
+    tibble::column_to_rownames('sample')
+) -> rda_HEL_TR
+
+```
+
+The results of an RDA analysis can be plotted as a *triplot* with arrows pointing in the direction
+of the environmental parameters (`r figr('rda-triplot', T, type = 'Figure')`). (Usually categorical
+variables are plotted as points and not as arrows as in my figure.)
+
+```{r rda-triplot, fig.height = 6, fig.cap = 'Redundancy analysis (RDA). Samples are plotted together with vectors indicating the influence of the three factors included in the analysis. *Note 1*: Many samples got the same coordinates, and are hence plotted on top of each other. *Note 2*: that the lengths of the factor vectors were divided by four to fit inside the plot. They should hence only be interpreted as directions.'}
+# I need to collect some temporary data sets for the plot
+# This one will contain the proportions explained which we get by dividing the
+# eigenvalue of each component with the sum of eigenvalues for all components.
+p<- c(rda_HEL_TR$CCA$eig, rda_HEL_TR$CA$eig)/sum(c(rda_HEL_TR$CCA$eig, rda_HEL_TR$CA$eig))
+
+# This one is collecting the coordinates for arrows that will depict how the 
+# factors in our model point in the coordinate
+a<- rda_HEL_TR$CCA$biplot %>% data.frame() %>% tibble::rownames_to_column('factor')
+
+rda_HEL_TR$CCA$u %>% data.frame() %>% tibble::rownames_to_column('sample') %>%
+  inner_join(samples, by = 'sample') %>%
+  ggplot(aes(x = RDA1, y = RDA2)) +
+     geom_point(aes(colour = regions , shape = zone), shape = 15) +
+  #geom_text_repel(aes(label = N_to_S_Site_names, element_text = 5),
+   #               max.overlaps = Inf,
+    #              min.segment.length = 0,
+     #             box.padding   = 0.35,
+      #            point.padding = 0.5,
+       #           segment.color = 'grey50') +
+    scale_color_manual(values = myColors) +
+    xlab(sprintf("RDA1 (%2.1f%% explained)", p[[1]] * 100)) +
+    ylab(sprintf("RDA2 (%2.1f%% explained)", p[[2]] * 100)) +
+    
+    geom_segment(
+      data = a, mapping = aes(xend = RDA1, yend = RDA2), 
+      x = 0, y = 0, arrow = arrow()
+    ) +
+    # Print the names of factors halfway along the arrows
+    geom_text(
+      data = a, mapping = aes(x = RDA1, y = RDA2, label = factor), 
+      size = 3)
+  
+```
+
+```{r}
+ggsave("figures/Figure_2_RDA_HEL_ENV_TR.pdf", width = 18, height = 10, units = "cm")
+```
+
+## Calculate hellinger of Reduced zone
+
+We want to have a new column called `hel` in the asvs table but the ASVS table need to be renewed following use with the HEL RDA.
+first subset the data to remove the all data except for the target zone 
+
+```{r}
+asvs_RZ <- asvs %>% 
+  merge(samples) 
+
+asvs_RZ <- subset( asvs_RZ, zone == "RZ") %>%
+  subset(select = c(seqid, sample, count))
+
+samples_RZ <- subset( samples, zone == "RZ")
+```
+
+
+
+
+
+```{r calc-hel, this takes a while}
+# This *adds a hel column* to the asvs table.
+# Note that the assignment to "asvs" is last and uses the -> assignment operator.  
+# Since all combinations of sample and seqid will now get a value, hel, the number of rows
+# increases quite a lot.
+asvs_HEL_RZ <- asvs_RZ %>%
+  # Make the table wide with samples as columns
+  spread(sample, count, fill = 0) %>%
+  # Move the seqid to rowname; this requires a data.frame()
+  data.frame() %>% tibble::column_to_rownames('seqid')%>%
+  
+  
+  
+  # Calculate the hel
+  decostand(method = "hellinger") %>%
+  data.frame() %>%
+  tibble::rownames_to_column('sample') %>%
+  gather(seqid, hel, 2:ncol(.)) %>%
+  # Get rid of 'X' that sometimes precedes the seqid and join back with original table
+  mutate(seqid = sub('^X', '', seqid)) %>%
+  left_join(asvs, by = c('sample', 'seqid')) %>%
+  # Set count to 0 if it's NA
+  replace_na(list(count = 0)) 
+
+
+  colnames(asvs_HEL_RZ)[2] <- "asv"
+  colnames(asvs_HEL_RZ)[1] <- "seqid"
+  colnames(asvs_HEL_RZ)[2] <- "sample"
+  
+```
+
+
+
+## Proper RDA with sample data RZ, using HEL data
+
+Below, I'm selecting three variables from the metadata, average soil relative humidity, average soil
+temperature (both continuous) and vegetation (categorical, i.e. yes or no).
+
+
+```{r calc-rda-2vars}
+# Create a matrix object; we need it named, can't generate one on "the fly"
+asvs_HEL_RZ %>% dplyr::select(sample, seqid, hel) %>%
+  spread(seqid, hel) %>% tibble::column_to_rownames('sample') -> asv_matrix_RZ
+# Here's the call to the rda function with a formula as the first argument,
+#  + Zone_depth_START_cm + Zone_size_cm  + S_AR + Fe3_mgKg + Fe2_mgKg + RZ + Na_H2O_mgKg(removed)
+vegan::rda(
+  asv_matrix_RZ ~ pH + Temp+ LOI + Ti_AR + S_AR + Fe3_mgKg + Fe2_mgKg, data = samples_RZ %>%
+    semi_join(asvs, by = 'sample') %>%
+    #replace_na(list('LOI' = 0.01)) %>%
+    tibble::column_to_rownames('sample')
+) -> rda_HEL_RZ
+
+```
+
+The results of an RDA analysis can be plotted as a *triplot* with arrows pointing in the direction
+of the environmental parameters (`r figr('rda-triplot', T, type = 'Figure')`). (Usually categorical
+variables are plotted as points and not as arrows as in my figure.)
+
+```{r rda-triplot, fig.height = 6, fig.cap = 'Redundancy analysis (RDA). Samples are plotted together with vectors indicating the influence of the three factors included in the analysis. *Note 1*: Many samples got the same coordinates, and are hence plotted on top of each other. *Note 2*: that the lengths of the factor vectors were divided by four to fit inside the plot. They should hence only be interpreted as directions.'}
+# I need to collect some temporary data sets for the plot
+# This one will contain the proportions explained which we get by dividing the
+# eigenvalue of each component with the sum of eigenvalues for all components.
+p<- c(rda_HEL_RZ$CCA$eig, rda_HEL_RZ$CA$eig)/sum(c(rda_HEL_RZ$CCA$eig, rda_HEL_RZ$CA$eig))
+
+# This one is collecting the coordinates for arrows that will depict how the 
+# factors in our model point in the coordinate
+a<- rda_HEL_RZ$CCA$biplot %>% data.frame() %>% tibble::rownames_to_column('factor')
+
+rda_HEL_RZ$CCA$u %>% data.frame() %>% tibble::rownames_to_column('sample') %>%
+  inner_join(samples, by = 'sample') %>%
+  ggplot(aes(x = RDA1, y = RDA2)) +
+     geom_point(aes(colour = regions , shape = zone), shape = 17) +
+  #geom_text_repel(aes(label = N_to_S_Site_names, element_text = 5),
+   #               max.overlaps = Inf,
+    #              min.segment.length = 0,
+     #             box.padding   = 0.35,
+      #            point.padding = 0.5,
+       #           segment.color = 'grey50') +
+    scale_color_manual(values = myColors) +
+    xlab(sprintf("RDA1 (%2.1f%% explained)", p[[1]] * 100)) +
+    ylab(sprintf("RDA2 (%2.1f%% explained)", p[[2]] * 100)) +
+    
+    geom_segment(
+      data = a, mapping = aes(xend = RDA1, yend = RDA2), 
+      x = 0, y = 0, arrow = arrow()
+    ) +
+    # Print the names of factors halfway along the arrows
+    geom_text(
+      data = a, mapping = aes(x = RDA1, y = RDA2, label = factor), 
+      size = 3)
+  
+```
+
+```{r}
+ggsave("figures/Figure_2_RDA_HEL_ENV_RZ.pdf", width = 18, height = 10, units = "cm")
+```
+
+
+
+
+
+###RDA by region and zone
+##A1 OX TR, RZ
+
+
+
+## Calculate hellinger of A1
+
+We want to have a new column called `hel` in the asvs table but the ASVS table need to be renewed following use with the HEL RDA.
+first subset the data to remove the all data except for the target zone 
+
+```{r}
+asvs_A1 <- asvs %>% 
+  merge(samples) 
+
+asvs_A1 <- subset( asvs_A1, regions == "A1") %>%
+  subset(select = c(seqid, sample, count))
+
+samples_A1 <- subset( samples, regions == "A1")
+```
+
+
+
+
+
+```{r calc-hel, this takes a while}
+# This *adds a hel column* to the asvs table.
+# Note that the assignment to "asvs" is last and uses the -> assignment operator.  
+# Since all combinations of sample and seqid will now get a value, hel, the number of rows
+# increases quite a lot.
+asvs_HEL_A1 <- asvs_A1 %>%
+  # Make the table wide with samples as columns
+  spread(sample, count, fill = 0) %>%
+  # Move the seqid to rowname; this requires a data.frame()
+  data.frame() %>% tibble::column_to_rownames('seqid')%>%
+  
+  
+  
+  # Calculate the hel
+  decostand(method = "hellinger") %>%
+  data.frame() %>%
+  tibble::rownames_to_column('sample') %>%
+  gather(seqid, hel, 2:ncol(.)) %>%
+  # Get rid of 'X' that sometimes precedes the seqid and join back with original table
+  mutate(seqid = sub('^X', '', seqid)) %>%
+  left_join(asvs, by = c('sample', 'seqid')) %>%
+  # Set count to 0 if it's NA
+  replace_na(list(count = 0)) 
+
+
+  colnames(asvs_HEL_A1)[2] <- "asv"
+  colnames(asvs_HEL_A1)[1] <- "seqid"
+  colnames(asvs_HEL_A1)[2] <- "sample"
+  
+```
+
+
+
+## Proper RDA with sample data A1, using HEL data
+
+Below, I'm selecting three variables from the metadata, average soil relative humidity, average soil
+temperature (both continuous) and vegetation (categorical, i.e. yes or no).
+
+
+```{r calc-rda-2vars}
+# Create a matrix object; we need it named, can't generate one on "the fly"
+asvs_HEL_A1 %>% dplyr::select(sample, seqid, hel) %>%
+  spread(seqid, hel) %>% tibble::column_to_rownames('sample') -> asv_matrix_A1
+# Here's the call to the rda function with a formula as the first argument,
+#  + Zone_depth_START_cm + Zone_size_cm  + S_AR + Fe3_mgKg + Fe2_mgKg + A1 + Na_H2O_mgKg(removed)
+vegan::rda(
+  asv_matrix_A1 ~  pH + LOI + Ti_AR+ Fe3_mgKg + Fe2_mgKg, data = samples_A1 %>%
+    semi_join(asvs, by = 'sample') %>%
+    #replace_na(list('LOI' = 0.01)) %>%
+    tibble::column_to_rownames('sample')
+) -> rda_HEL_A1
+
+```
+
+The results of an RDA analysis can be plotted as a *triplot* with arrows pointing in the direction
+of the environmental parameters (`r figr('rda-triplot', T, type = 'Figure')`). (Usually categorical
+variables are plotted as points and not as arrows as in my figure.)
+
+```{r rda-triplot, fig.height = 6, fig.cap = 'Redundancy analysis (RDA). Samples are plotted together with vectors indicating the influence of the three factors included in the analysis. *Note 1*: Many samples got the same coordinates, and are hence plotted on top of each other. *Note 2*: that the lengths of the factor vectors were divided by four to fit inside the plot. They should hence only be interpreted as directions.'}
+# I need to collect some temporary data sets for the plot
+# This one will contain the proportions explained which we get by dividing the
+# eigenvalue of each component with the sum of eigenvalues for all components.
+p<- c(rda_HEL_A1$CCA$eig, rda_HEL_A1$CA$eig)/sum(c(rda_HEL_A1$CCA$eig, rda_HEL_A1$CA$eig))
+
+# This one is collecting the coordinates for arrows that will depict how the 
+# factors in our model point in the coordinate
+a<- rda_HEL_A1$CCA$biplot %>% data.frame() %>% tibble::rownames_to_column('factor')
+
+rda_HEL_A1$CCA$u %>% data.frame() %>% tibble::rownames_to_column('sample') %>%
+  inner_join(samples_A1, by = 'sample') %>%
+  ggplot(aes(x = RDA1, y = RDA2)) +
+     geom_point(aes(colour = regions , shape = zone)) +
+  #geom_text_repel(aes(label = N_to_S_Site_names, element_text = 5),
+   #               max.overlaps = Inf,
+    #              min.segment.length = 0,
+     #             box.padding   = 0.35,
+      #            point.padding = 0.5,
+       #           segment.color = 'grey50') +
+    scale_color_manual(values = myColors) +
+    xlab(sprintf("RDA1 (%2.1f%% explained)", p[[1]] * 100)) +
+    ylab(sprintf("RDA2 (%2.1f%% explained)", p[[2]] * 100)) +
+    
+    geom_segment(
+      data = a, mapping = aes(xend = RDA1, yend = RDA2), 
+      x = 0, y = 0, arrow = arrow()
+    ) +
+    # Print the names of factors halfway along the arrows
+    geom_text(
+      data = a, mapping = aes(x = RDA1, y = RDA2, label = factor), 
+      size = 3)
+  
+```
+
+```{r}
+ggsave("figures/Figure_2_RDA_HEL_ENV_A1_noS.pdf", width = 18, height = 10, units = "cm")
+```
+
+
+
+
+## Calculate hellinger of A3A4A5
+
+We want to have a new column called `hel` in the asvs table but the ASVS table need to be renewed following use with the HEL RDA.
+first subset the data to remove the all data except for the target zone 
+
+```{r}
+asvs_A3A4A5 <- asvs %>% 
+  merge(samples) 
+
+asvs_A3A4A5 <- subset( asvs_A3A4A5, regions %in% c("A3", "A4", "A5")) %>%
+  subset(select = c(seqid, sample, count))
+
+samples_A3A4A5 <- subset( samples, regions %in% c("A3", "A4", "A5"))
+```
+
+
+
+
+
+```{r calc-hel, this takes a while}
+# This *adds a hel column* to the asvs table.
+# Note that the assignment to "asvs" is last and uses the -> assignment operator.  
+# Since all combinations of sample and seqid will now get a value, hel, the number of rows
+# increases quite a lot.
+asvs_HEL_A3A4A5 <- asvs_A3A4A5 %>%
+  # Make the table wide with samples as columns
+  spread(sample, count, fill = 0) %>%
+  # Move the seqid to rowname; this requires a data.frame()
+  data.frame() %>% tibble::column_to_rownames('seqid')%>%
+  
+  
+  
+  # Calculate the hel
+  decostand(method = "hellinger") %>%
+  data.frame() %>%
+  tibble::rownames_to_column('sample') %>%
+  gather(seqid, hel, 2:ncol(.)) %>%
+  # Get rid of 'X' that sometimes precedes the seqid and join back with original table
+  mutate(seqid = sub('^X', '', seqid)) %>%
+  left_join(asvs, by = c('sample', 'seqid')) %>%
+  # Set count to 0 if it's NA
+  replace_na(list(count = 0)) 
+
+
+  colnames(asvs_HEL_A3A4A5)[2] <- "asv"
+  colnames(asvs_HEL_A3A4A5)[1] <- "seqid"
+  colnames(asvs_HEL_A3A4A5)[2] <- "sample"
+  
+```
+
+
+
+## Proper RDA with sample data A3A4A5, using HEL data
+
+Below, I'm selecting three variables from the metadata, average soil relative humidity, average soil
+temperature (both continuous) and vegetation (categorical, i.e. yes or no).
+
+
+```{r calc-rda-2vars}
+# Create a matrix object; we need it named, can't generate one on "the fly"
+asvs_HEL_A3A4A5 %>% dplyr::select(sample, seqid, hel) %>%
+  spread(seqid, hel) %>% tibble::column_to_rownames('sample') -> asv_matrix_A3A4A5
+# Here's the call to the rda function with a formula as the first argument,
+#  + Zone_depth_START_cm + Zone_size_cm  + S_AR + Fe3_mgKg + Fe2_mgKg + A3A4A5 + Na_H2O_mgKg(removed)
+vegan::rda(
+  asv_matrix_A3A4A5 ~ pH + LOI + Ti_AR + Fe3_mgKg + Fe2_mgKg, data = samples_A3A4A5 %>%
+    semi_join(asvs, by = 'sample') %>%
+    #replace_na(list('LOI' = 0.01)) %>%
+    tibble::column_to_rownames('sample')
+) -> rda_HEL_A3A4A5
+
+```
+
+The results of an RDA analysis can be plotted as a *triplot* with arrows pointing in the direction
+of the environmental parameters (`r figr('rda-triplot', T, type = 'Figure')`). (Usually categorical
+variables are plotted as points and not as arrows as in my figure.)
+
+```{r rda-triplot, fig.height = 6, fig.cap = 'Redundancy analysis (RDA). Samples are plotted together with vectors indicating the influence of the three factors included in the analysis. *Note 1*: Many samples got the same coordinates, and are hence plotted on top of each other. *Note 2*: that the lengths of the factor vectors were divided by four to fit inside the plot. They should hence only be interpreted as directions.'}
+# I need to collect some temporary data sets for the plot
+# This one will contain the proportions explained which we get by dividing the
+# eigenvalue of each component with the sum of eigenvalues for all components.
+p<- c(rda_HEL_A3A4A5$CCA$eig, rda_HEL_A3A4A5$CA$eig)/sum(c(rda_HEL_A3A4A5$CCA$eig, rda_HEL_A3A4A5$CA$eig))
+
+# This one is collecting the coordinates for arrows that will depict how the 
+# factors in our model point in the coordinate
+a<- rda_HEL_A3A4A5$CCA$biplot %>% data.frame() %>% tibble::rownames_to_column('factor')
+
+myColorsSubset <- myColors[-c(1,2)]
+
+rda_HEL_A3A4A5$CCA$u %>% data.frame() %>% tibble::rownames_to_column('sample') %>%
+  inner_join(samples_A3A4A5, by = 'sample') %>%
+  ggplot(aes(x = RDA1, y = RDA2)) +
+     geom_point(aes(colour = regions , shape = zone)) +
+  #geom_text_repel(aes(label = N_to_S_Site_names, element_text = 5),
+   #               max.overlaps = Inf,
+    #              min.segment.length = 0,
+     #             box.padding   = 0.35,
+      #            point.padding = 0.5,
+       #           segment.color = 'grey50') +
+    scale_color_manual(values = myColorsSubset) +
+    xlab(sprintf("RDA1 (%2.1f%% explained)", p[[1]] * 100)) +
+    ylab(sprintf("RDA2 (%2.1f%% explained)", p[[2]] * 100)) +
+    
+    geom_segment(
+      data = a, mapping = aes(xend = RDA1, yend = RDA2), 
+      x = 0, y = 0, arrow = arrow()
+    ) +
+    # Print the names of factors halfway along the arrows
+    geom_text(
+      data = a, mapping = aes(x = RDA1, y = RDA2, label = factor), 
+      size = 3)
+  
+```
+
+```{r}
+ggsave("figures/Figure_2_RDA_HEL_ENV_A3A4A5_noS.pdf", width = 18, height = 10, units = "cm")
+```
