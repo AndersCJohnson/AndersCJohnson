@@ -152,7 +152,7 @@ asvs<-sequencing_depth%>%
 sequencing_depth %>%
   gather(sample, count, -1)%>%
   group_by(seqid)%>%
-  #filter(count > 0) %>% 
+  filter(count > 0) %>% 
   ungroup() %>%
   mutate(count = as.integer(count))%>%
   # Add metadata
@@ -161,6 +161,21 @@ sequencing_depth %>%
   group_by(sample) %>%
   group_by(site, zone)%>% #do at sample level first 
   mutate(relab = count/sum(count)) %>% ungroup() -> sequencing_depth_seqtab
+```
+
+```{r}
+# Create a table with sample ID, # of ASVs, and sequencing depth
+summary_table <- sequencing_depth_seqtab %>%
+  dplyr::select(sample, seqid, count) %>%
+  group_by(sample) %>%
+  summarise(
+    num_asvs = n(),            # Number of ASVs
+    sequencing_depth = sum(count)   # Sequencing depth
+  ) %>%
+  ungroup()
+
+# Export the summary table to a CSV file
+write.csv(summary_table, "figures/ASV_seqDepth_summary_table.csv", row.names = FALSE)
 ```
 
 
@@ -2155,11 +2170,80 @@ ggsave("figures/LNUASS_Active_StackedBar_Top_20_domain.pdf", scale = 2, width = 
 
 
 
+
+```{r read-counts-data }
+# Read the ASV table and turn it long without zeroes
+asvs <- read_csv("LNUASS_Active_ASV_table_Clean.csv",
+  col_types = cols(.default = col_double(), seqid = col_character())) %>%
+  gather(sample, count, 2:162) %>%
+  # Take away rows with zero count
+  filter(count > 0) %>%
+  # Take away samples with less than 500 observations (this is an arbitrary choice 
+  # to get rid of samples with very low sequencing depth). 
+    #due to low seq depth, samples with less than 500 obsv were not filtered
+  #group_by(sample) %>% 
+  #filter(sum(count) >= 500) %>% 
+  ungroup()
+```
+
+
+##PCA, div indicies, RDA
+
+```{r}
+
+feature_table <- read_csv("LNUASS_Active_ASV_table_Clean - backup.csv",
+  col_types = cols(.default = col_double(), seqid = col_character())) #%>% 
+  #filter(rowSums(.[-1]) > 0)
+```
+
+```{r read the taxonomy data}
+# Read the taxonomy table
+taxonomy <- read_tsv("LNUASS_Active_ASV_tax_species.tsv", col_types = cols("seqid" = col_character(), "Domain" = col_character(), "Kingdom"  = col_character(), "Class" = col_character(), "Order" = col_character(), "Family" = col_character(), "Genus" = col_character(), "Species" = col_character(), "confidence" = col_double(), "sequence" = col_character())) %>% 
+  # rename "uncultured" to N/A
+  mutate(across(c(Class, Order, Family, Genus, Species), ~na_if(., "uncultured"))) %>%
+  mutate(across(c(Class, Order, Family, Genus, Species), ~na_if(., "uncultured bacterium"))) %>%
+  mutate(across(c(Class, Order, Family, Genus, Species), ~na_if(., "uncultured organism"))) %>%
+  mutate(across(c(Class, Order, Family, Genus, Species), ~na_if(., "uncultured Actinomycetales bacterium"))) 
+  # Rename Feature ID to seqid, the name in the ASV table
+   #rename(seqid = ASV_ID)
+```
+
+```{r read the metadata}
+# Read the sample data ("metadata")
+samples <- read_csv("LNUASS_Active_metadata_Clean.csv", 
+  col_names = TRUE,
+  col_types = cols(.default = col_double(),
+    sample = col_character(), 
+    N_to_S_Site_names = col_character(), 
+    sample_Identity = col_character(), 
+    site = col_character(), 
+    replicate = col_character(),
+    zone = col_character(),
+    OX = col_double(),
+    TR = col_double(),
+    RZ = col_double(),
+    regions = col_character(),
+    pH = col_double(),
+    Temp = col_double(),
+    LOI = col_double(),
+    S_AR = col_double(),
+    Fe3_mgKg = col_double(),
+    Fe2_mgKg = col_double())) %>%
+  
+  # Subset the table to only contain the samples that are in the asvs table (which was 
+  # subset to only contain samples > 500 observations).
+  semi_join(asvs, by = 'sample')
+# subset to remove rows with NA values
+#samples<-samples[complete.cases(samples), ]
+
+#samples <- dplyr::select(samples, -c("OX", "TR" , "RZ" , "pH" , "Temp" , "LOI" , "S_AR" , "Fe3_mgKg" , "Fe2_mgKg"))
+```
+
+
+
+
 ```{r simple NMDS}
 
-
-feature_table <- read_csv("LNUASS_Active_ASV_table_Clean.csv",
-  col_types = cols(.default = col_double(), seqid = col_character()))
 
 T_otu_mat <- feature_table %>% tibble::column_to_rownames("seqid") %>% as.matrix() %>% t()
 
@@ -2190,9 +2274,9 @@ LNUASS_active.bray<- vegdist(repl_LNUASS_active.mdf, method = "bray")
 
 LNUASS_active.bray
 
-LNUASS_active.jac <- vegdist(repl_LNUASS_active.mdf, method = "jaccard" , binary = T)
+#LNUASS_active.jac <- vegdist(repl_LNUASS_active.mdf, method = "jaccard" , binary = T)
 
-LNUASS_active.jac
+#LNUASS_active.jac
 
 ###PCOA
 
@@ -2240,6 +2324,17 @@ plot(pcoa.LNUASS_active.bray.plot)
 ```{r}
 ggsave("figures/Figure_1_nmds_no_normalization.pdf")
 ```
+
+```{r}
+permanova_data <- pcoa.LNUASS_active.bray.plotting %>% dplyr::select(axis_1, axis_2, regions, zone)
+
+# Perform PERMANOVA
+permanova_result <- adonis(as.matrix(cbind(axis_1, axis_2)) ~ regions, data = permanova_data, permutations = 999)
+
+# Print the PERMANOVA results
+print(permanova_result)
+```
+
 
 
 
@@ -2405,8 +2500,28 @@ print(pielou_tukey_RZ)
 
 ```
 
+```{r diversity statistics, all regions and zones}
+
+alpha$grouped_regions <- ifelse(alpha$regions %in% c("A1"), "A1", "A3A4A5")
+
+alpha_grouped_A1_VS_A3A4A5 <- alpha[alpha$grouped_regions %in% c("A1", "A3A4A5"), ]
+
+shannon_anova_A1_A3A4A5 <- aov(shannon ~ grouped_regions + zone , data = alpha_grouped_A1_VS_A3A4A5)
+richness_anova_A1_A3A4A5 <- aov( richness ~ grouped_regions + zone, data = alpha_grouped_A1_VS_A3A4A5)
+pielou_anova_A1_A3A4A5 <- aov(pielou ~ grouped_regions + zone, data = alpha_grouped_A1_VS_A3A4A5)
+
+shannon_tukey_A1_A3A4A5 <- shannon_anova_A1_A3A4A5 %>% TukeyHSD()
+richness_tukey_A1_A3A4A5 <- richness_anova_A1_A3A4A5 %>% TukeyHSD()
+pielou_tukey_A1_A3A4A5 <- pielou_anova_A1_A3A4A5 %>% TukeyHSD()
 
 
+summary(shannon_anova_A1_A3A4A5)
+print(shannon_tukey_A1_A3A4A5)
+summary(richness_anova_A1_A3A4A5)
+print(richness_tukey_A1_A3A4A5)
+summary(pielou_anova_A1_A3A4A5)
+print(pielou_tukey_A1_A3A4A5)
+```
 
 
 
@@ -2525,13 +2640,119 @@ asvs_HEL %>% dplyr::select(sample, seqid, hel) %>%
 # Here's the call to the rda function with a formula as the first argument,
 #   + Zone_depth_START_cm + Zone_size_cm + pH + Na_H2O_mgKg     (removed)
 vegan::rda(
-  asv_matrix ~ OX + TR + RZ + pH + LOI + Temp + S_AR + Fe3_mgKg + Fe2_mgKg , data = samples %>%
+  asv_matrix ~ OX + TR + RZ + pH + Temp + LOI + Ti_AR + S_AR + Fe3_mgKg + Fe2_mgKg, data = samples %>%
     semi_join(asvs, by = 'sample') %>%
     #replace_na(list('LOI' = 0.01)) %>%
     tibble::column_to_rownames('sample')
 ) -> rda
 
 ```
+
+
+```{r correlations}
+rda_scores <- scores(rda, display = "lc")
+
+samples[, c("OX" , "TR" , "RZ" , "pH" , "Temp" , "LOI" , "Ti_AR" , "S_AR" , "Fe3_mgKg" , "Fe2_mgKg")] <- lapply(samples[, c("OX" , "TR" , "RZ" , "pH" , "Temp" , "LOI" , "Ti_AR" , "S_AR" , "Fe3_mgKg" , "Fe2_mgKg")], as.numeric)
+
+merged_data <- merge(data.frame(sample = rownames(rda_scores), rda_scores), samples, by = "sample")
+
+
+
+# Initialize an empty vector to store p-values
+p_values_pH <- numeric(nrow(merged_data))
+
+# Initialize OX_vector
+pH_vector <- merged_data$pH
+
+
+# Perform correlation tests
+for (i in seq_len(nrow(merged_data))) {
+  p_values_pH[i] <- cor.test(RDA1_vector, pH_vector)$p.value}
+
+# Check p-values
+summary(p_values_pH)
+cor(RDA1_vector, pH_vector)
+
+
+
+
+# Initialize an empty vector to store p-values
+p_values_Temp <- numeric(nrow(merged_data))
+
+# Initialize OX_vector
+Temp_vector <- merged_data$Temp
+
+
+# Perform correlation tests
+for (i in seq_len(nrow(merged_data))) {
+  p_values_Temp[i] <- cor.test(RDA1_vector, Temp_vector)$p.value}
+
+# Check p-values
+summary(p_values_Temp)
+cor(RDA1_vector, Temp_vector)
+
+
+
+```
+
+```{r} 
+# A1 vs A3A4A5 regions
+# Assuming merged_data has columns for regions, pH, Temperature, and other variables
+# Subset data for regions A1 and A3A4A5
+data_A1 <- merged_data[merged_data$regions == "A1", ]
+data_A3A4A5 <- merged_data[merged_data$regions %in% c("A3", "A4", "A5"), ]
+
+# List of variables to compare
+variables_of_interest <- c("pH", "Temp", "LOI", "Ti_AR", "S_AR", "Fe3_mgKg", "Fe2_mgKg")
+
+# Initialize an empty data frame to store results
+comparison_results <- data.frame(Variable = character(), P_Value = numeric(), stringsAsFactors = FALSE)
+
+# Perform t-tests for each variable
+for (variable in variables_of_interest) {
+  t_test_result <- t.test(data_A1[[variable]], data_A3A4A5[[variable]])
+  
+  # Store results in the data frame
+  comparison_results <- rbind(comparison_results, c(Variable = variable, P_Value = t_test_result$p.value))
+}
+# Print or further analyze the comparison results
+print(comparison_results)
+```
+
+
+```{r}
+# Assuming merged_data has columns for regions, zones, pH, Temperature, and other variables
+# Subset data for regions A1 and A3A4A5
+data_A1 <- merged_data[merged_data$regions == "A1", ]
+data_A3A4A5 <- merged_data[merged_data$regions %in% c("A3", "A4", "A5"), ]
+
+# List of variables to compare
+variables_of_interest <- c("pH", "Temp", "LOI", "Ti_AR", "S_AR", "Fe3_mgKg", "Fe2_mgKg")
+
+# Initialize an empty data frame to store results
+comparison_results <- data.frame(Variable = character(), P_Value = numeric(), stringsAsFactors = FALSE)
+
+# Perform t-tests for each variable within each zone
+for (zone in unique(merged_data$zone)) {
+  data_A1_zone <- data_A1[data_A1$zone == zone, ]
+  data_A3A4A5_zone <- data_A3A4A5[data_A3A4A5$zone == zone, ]
+
+  for (variable in variables_of_interest) {
+    t_test_result <- t.test(data_A1_zone[[variable]], data_A3A4A5_zone[[variable]])
+    
+    # Store results in the data frame
+    comparison_results <- rbind(comparison_results, c(Variable = paste(variable, zone, sep = "_"), P_Value = t_test_result$p.value))
+  }
+}
+
+print(comparison_results)
+```
+
+
+
+
+
+
 
 The results of an RDA analysis can be plotted as a *triplot* with arrows pointing in the direction
 of the environmental parameters (`r figr('rda-triplot', T, type = 'Figure')`). (Usually categorical
@@ -2562,18 +2783,39 @@ rda$CCA$u %>% data.frame() %>% tibble::rownames_to_column('sample') %>%
     ylab(sprintf("RDA2 (%2.1f%% explained)", p[[2]] * 100)) +
     
     geom_segment(
-      data = a, mapping = aes(xend = RDA1/4, yend = RDA2/4), 
+      data = a, mapping = aes(xend = RDA1, yend = RDA2), 
       x = 0, y = 0, arrow = arrow()
     ) +
     # Print the names of factors halfway along the arrows
     geom_text(
-      data = a, mapping = aes(x = RDA1/8, y = RDA2/8, label = factor), 
+      data = a, mapping = aes(x = RDA1, y = RDA2, label = factor), 
       size = 3)
   
 ```
+
 ```{r}
 ggsave("figures/Figure_2_RDA_HEL_ENv.pdf", width = 18, height = 10, units = "cm")
 ```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -3169,3 +3411,4 @@ rda_HEL_A3A4A5$CCA$u %>% data.frame() %>% tibble::rownames_to_column('sample') %
 ```{r}
 ggsave("figures/Figure_2_RDA_HEL_ENV_A3A4A5_noS.pdf", width = 18, height = 10, units = "cm")
 ```
+
