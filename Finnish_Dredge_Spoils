@@ -1,0 +1,724 @@
+---
+title: "Spoils_manuscript"
+author: "anders"
+date: "6/14/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r set working directory}
+setwd("~/Laboratory Journal/schristel-spoils2018/Spoils2018/R_Spoils_clean")
+```
+
+```{r bring in packages}
+library(tidyverse)
+library(gridExtra)
+library(ggplot2)
+library(reshape2)
+library(ggrepel)
+library(vegan)
+library(asbio)
+library(ggplot2)
+library(viridis)
+library(cowplot)
+```
+
+##This brings in the metadata
+```{r import meta_data}
+#### bring metadata in 
+
+read_csv("repl_spoils_plate_metadata_CLEANED.csv", 
+         col_names = TRUE) ->smd
+
+```
+
+##this brings in the feature table
+```{r import feature table}
+###remember to remove "constructed from biom file and rename #OTU ID to seqid before starting
+### bring feature table data in
+read_csv("repl_feature-table_metadata_CLEANED.csv", col_types = cols(.default = col_double(), seqid = col_character()))-> feature_table
+```
+
+```{r prepare the fature table}
+feature_table%>%
+  gather(sample, count, -1)%>%
+  group_by(seqid)%>%
+  #filter(count > 0) %>% 
+  ungroup() %>%
+  mutate(count = as.integer(count))%>%
+  # Remove plate ID, 
+  #mutate(sample = gsub('P7551_', '', sample)) %>%
+  # Add metadata
+ inner_join(smd, by = 'sample')%>%
+  # Relative abundance, grouped first by sample name, and then next by rep(sampling replicate identifier)
+  group_by(sample) %>%
+  group_by(rep)%>%
+  mutate(relab = count/sum(count)) %>% ungroup() -> seqtab
+```
+
+##This brings in the Taxonomy data. 
+```{r import taxonomy data}
+### bring taxonomy data in 
+read_tsv("taxonomy.seqid.tsv", col_types = cols(.default = col_character())) %>%
+  select(-confidence) %>%
+  #remove the header identifiers 
+  mutate(taxon = gsub('D_[0-9]__', '', taxon)) %>%
+  separate(taxon, c('Domain', 'Phylum', 'Class', 'Order', 'Family', 'Genus', 'Species'), sep = ';', fill = 'right') -> tax
+```
+
+###Check sequencing depth
+###Check sequencing depth
+###Check sequencing depth
+###Check sequencing depth
+
+```{r rarefaction}
+library(vegan)
+seqtab %>%
+  select ( seqid, sample, count) %>%
+  spread(seqid, count, fill = 0) %>%
+  column_to_rownames("sample")%>%
+rarecurve(sample= 100, step = 100, xlab = "Sequencing Depth", ylab = "# of ASVs")
+
+```
+
+#Export the plot
+```{r export rarefaction plot }
+### manually save with right-click "save as"
+````
+
+
+
+### Relative overall abundance 
+### Relative overall abundance genera
+### Relative overall abundance phylum
+### Relative overall abundance class
+### Relative overall abundance order
+### Relative overall abundance family
+
+###looks at the top 20 genera, 
+```{r select top 20 most abundant genera}
+# Select the 20 most abundant genera
+seqtab %>%
+  inner_join(tax, by = 'seqid')%>%
+  group_by(Genus, sample)%>%
+  # Calculate the relative abundance of each genus in each sample
+  summarise(relab = sum(relab))%>%
+  # Calculate the mean relative abundance of each genus over the samples
+  summarise(mean_relab = sum(relab))%>%
+  ungroup() %>%
+  # Filter out non-assigned genera
+  filter(!is.na(Genus))%>%
+  # Select the top 20
+  top_n(20, mean_relab) -> t20_genus
+
+# Add this information to the taxonomy table as the column topphylum
+tax %>%
+  # Join in the top 20 table
+  left_join(t20_genus %>% transmute(Genus, topgenus = Genus), by = 'Genus') %>%
+  # Set topgenus to 'Other' for those that were not among the top 20
+  replace_na(list('topgenus' = 'Other')) -> tax20_genus
+```
+##print the top20 genera table
+```{r print top20 genera table}
+t20_genus%>%
+ arrange(desc(mean_relab))->t20_genus_order_decending
+
+pdf("genera_top_20_relab_table.pdf", height=8, width=8)
+title <- "Overall, Top 20 Genera, Relative Abundance"
+
+grid::grid.newpage()
+grid::grid.text(title,x = (.5), y = (0.9))
+grid.table(t20_genus_order_decending) 
+dev.off()
+```
+
+### break down to family and look for acidiophiles, proteobacteria, actinobacter
+###looks at the top 20 phylum, 
+```{r select top 20 most abundant phylum}
+# Select the 20 most abundant phylum
+seqtab %>%
+  inner_join(tax, by = 'seqid')%>%
+  group_by(Phylum, sample)%>%
+  # Calculate the relative abundance of each phylum in each sample
+  summarise(relab = sum(relab))%>%
+  # Calculate the mean relative abundance of each phylum over the samples
+  summarise(mean_relab = sum(relab))%>%
+  ungroup() %>%
+  # Filter out non-assigned phylum
+  filter(!is.na(Phylum))%>%
+  # Select the top 20
+  top_n(20, mean_relab) -> t20_phylum
+
+# Add this information to the taxonomy table as the column topphylum
+tax %>%
+  # Join in the top 20 table
+  left_join(t20_phylum %>% transmute(Phylum, topphylum = Phylum), by = 'Phylum') %>%
+  # Set topphylum to 'Other' for those that were not among the top 20
+  replace_na(list('topphylum' = 'Other')) -> tax20_phylum
+```
+##print the top20 phylum table
+```{r print top20 phylum table}
+t20_phylum%>%
+ arrange(desc(mean_relab))->t20_phylum_order_decending
+
+pdf("phylum_top_20_relab_table.pdf", height=8, width=8)
+title <- "Overall, Top 20 Phylum, Relative Abundance"
+
+grid::grid.newpage()
+grid::grid.text(title,x = (.5), y = (0.9))
+grid.table(t20_phylum_order_decending) 
+dev.off()
+```
+
+### break down to family and look for acidiophiles, proteobacteria, actinobacter
+###looks at the top 20 class, 
+```{r select top 20 most abundant class}
+# Select the 20 most abundant class
+seqtab %>%
+  inner_join(tax, by = 'seqid')%>%
+  group_by(Class, sample)%>%
+  # Calculate the relative abundance of each class in each sample
+  summarise(relab = sum(relab))%>%
+  # Calculate the mean relative abundance of each class over the samples
+  summarise(mean_relab = sum(relab))%>%
+  ungroup() %>%
+  # Filter out non-assigned class
+  filter(!is.na(Class))%>%
+  # Select the top 20
+  top_n(20, mean_relab) -> t20_class
+
+# Add this information to the taxonomy table as the column topclass
+tax %>%
+  # Join in the top 20 table
+  left_join(t20_class %>% transmute(Class, topphylum = Class), by = 'Class') %>%
+  # Set topclass to 'Other' for those that were not among the top 20
+  replace_na(list('topclass' = 'Other')) -> tax20_class
+```
+##print the top20 class table
+```{r print top20 class table}
+t20_class%>%
+ arrange(desc(mean_relab))->t20_class_order_decending
+
+pdf("class_top_20_relab_table.pdf", height=8, width=8)
+title <- "Overall, Top 20 Class, Relative Abundance"
+
+grid::grid.newpage()
+grid::grid.text(title,x = (.5), y = (0.9))
+grid.table(t20_class_order_decending) 
+dev.off()
+```
+
+### break down to family and look for acidiophiles, proteobacteria, actinobacter
+###looks at the top 20 order, 
+```{r select top 20 most abundant order}
+# Select the 20 most abundant order
+seqtab %>%
+  inner_join(tax, by = 'seqid')%>%
+  group_by(Order, sample)%>%
+  # Calculate the relative abundance of each order in each sample
+  summarise(relab = sum(relab))%>%
+  # Calculate the mean relative abundance of each order over the samples
+  summarise(mean_relab = sum(relab))%>%
+  ungroup() %>%
+  # Filter out non-assigned order
+  filter(!is.na(Order))%>%
+  # Select the top 20
+  top_n(20, mean_relab) -> t20_order
+
+# Add this information to the taxonomy table as the column toporder
+tax %>%
+  # Join in the top 20 table
+  left_join(t20_order %>% transmute(Order, topphylum = Order), by = 'Order') %>%
+  # Set toporder to 'Other' for those that were not among the top 20
+  replace_na(list('toporder' = 'Other')) -> tax20_order
+```
+##print the top20 order table
+```{r print top20 order table}
+t20_order%>%
+ arrange(desc(mean_relab))->t20_order_order_decending
+
+pdf("order_top_20_relab_table.pdf", height=8, width=8)
+title <- "Overall, Top 20 order, Relative Abundance"
+
+grid::grid.newpage()
+grid::grid.text(title,x = (.5), y = (0.9))
+grid.table(t20_order_order_decending) 
+dev.off()
+```
+
+### break down to family and look for acidiophiles, proteobacteria, actinobacter
+###looks at the top 20 family, 
+```{r select top 20 most abundant family}
+# Select the 20 most abundant family
+seqtab %>%
+  inner_join(tax, by = 'seqid')%>%
+  group_by(Family, sample)%>%
+  # Calculate the relative abundance of each family in each sample
+  summarise(relab = sum(relab))%>%
+  # Calculate the mean relative abundance of each family over the samples
+  summarise(mean_relab = sum(relab))%>%
+  ungroup() %>%
+  # Filter out non-assigned family
+  filter(!is.na(Family))%>%
+  # Select the top 20
+  top_n(20, mean_relab) -> t20_family
+
+# Add this information to the taxonomy table as the column topfamily
+tax %>%
+  # Join in the top 20 table
+  left_join(t20_family %>% transmute(Family, topphylum = Family), by = 'Family') %>%
+  # Set topfamily to 'Other' for those that were not among the top 20
+  replace_na(list('topfamily' = 'Other')) -> tax20_family
+```
+##print the top20 family table
+```{r print top20 family table}
+t20_family%>%
+ arrange(desc(mean_relab))->t20_family_order_decending
+
+pdf("family_top_20_relab_table.pdf", height=8, width=8)
+title <- "Overall, Top 20 family, Relative Abundance"
+
+grid::grid.newpage()
+grid::grid.text(title,x = (.5), y = (0.9))
+grid.table(t20_family_order_decending) 
+dev.off()
+```
+
+
+
+### break down by depths
+### break down by depths 10cm
+### break down by depths 20cm
+### break down by depths 30cm
+### break down by depths 60cm
+
+###looks at the top 20 genera, depth10
+```{r select top 20 most abundant genera depth10}
+# Select the 20 most abundant genera
+seqtab %>%
+  inner_join(tax, by = 'seqid')%>%
+  #filter out non-10 depths
+  filter(depth=="10")%>%
+  group_by(Genus, sample)%>%
+  # Calculate the relative abundance of each genus in each sample
+  summarise(relab = sum(relab))%>%
+  # Calculate the mean relative abundance of each genus over the samples
+  summarise(mean_relab = sum(relab))%>%
+  ungroup() %>%
+  # Filter out non-assigned genera
+  filter(!is.na(Genus))%>%
+  # Select the top 20
+  top_n(20, mean_relab) -> depth_10_t20_genus
+
+# Add this information to the taxonomy table as the column topgenus
+tax %>%
+  # Join in the top 20 table
+  left_join(depth_10_t20_genus %>% transmute(Genus, topgenus = Genus), by = 'Genus') %>%
+  # Set topgenus to 'Other' for those that were not among the top 20
+  replace_na(list('topgenus' = 'Other')) -> depth_10_tax20_genus
+```
+##print the top20 genera table
+```{r print top20 genera table}
+depth_10_t20_genus%>%
+ arrange(desc(mean_relab))->depth_10_t20_genus_order_decending
+
+pdf("depth_10_genera_top_20_relab_table.pdf", height=8, width=8)
+title <- "10cm Depth, Top 20 Genera, Relative Abundance"
+
+grid::grid.newpage()
+grid::grid.text(title,x = (.5), y = (0.9))
+grid.table(depth_10_t20_genus_order_decending) 
+dev.off()
+```
+
+###looks at the top 20 genera, depth20
+```{r select top 20 most abundant genera depth20}
+# Select the 20 most abundant genera
+seqtab %>%
+  inner_join(tax, by = 'seqid')%>%
+  #filter out non-20 depths
+  filter(depth=="20")%>%
+  group_by(Genus, sample)%>%
+  # Calculate the relative abundance of each genus in each sample
+  summarise(relab = sum(relab))%>%
+  # Calculate the mean relative abundance of each genus over the samples
+  summarise(mean_relab = sum(relab))%>%
+  ungroup() %>%
+  # Filter out non-assigned genera
+  filter(!is.na(Genus))%>%
+  # Select the top 20
+  top_n(20, mean_relab) -> depth_20_t20_genus
+
+# Add this information to the taxonomy table as the column topgenus
+tax %>%
+  # Join in the top 20 table
+  left_join(depth_20_t20_genus %>% transmute(Genus, topgenus = Genus), by = 'Genus') %>%
+  # Set topgenus to 'Other' for those that were not among the top 20
+  replace_na(list('topgenus' = 'Other')) -> depth_20_tax20_genus
+```
+##print the top20 genera table
+```{r print top20 genera table}
+depth_20_t20_genus%>%
+ arrange(desc(mean_relab))->depth_20_t20_genus_order_decending
+
+pdf("depth_20_genera_top_20_relab_table.pdf", height=8, width=8)
+title <- "20cm Depth, Top 20 Genera, Relative Abundance"
+
+grid::grid.newpage()
+grid::grid.text(title,x = (.5), y = (0.9))
+grid.table(depth_20_t20_genus_order_decending) 
+dev.off()
+```
+
+###looks at the top 20 genera, depth30
+```{r select top 20 most abundant genera depth30}
+# Select the 20 most abundant genera
+seqtab %>%
+  inner_join(tax, by = 'seqid')%>%
+  #filter out non-30 depths
+  filter(depth=="30")%>%
+  group_by(Genus, sample)%>%
+  # Calculate the relative abundance of each genus in each sample
+  summarise(relab = sum(relab))%>%
+  # Calculate the mean relative abundance of each genus over the samples
+  summarise(mean_relab = sum(relab))%>%
+  ungroup() %>%
+  # Filter out non-assigned genera
+  filter(!is.na(Genus))%>%
+  # Select the top 20
+  top_n(20, mean_relab) -> depth_30_t20_genus
+
+# Add this information to the taxonomy table as the column topgenus
+tax %>%
+  # Join in the top 20 table
+  left_join(depth_30_t20_genus %>% transmute(Genus, topgenus = Genus), by = 'Genus') %>%
+  # Set topgenus to 'Other' for those that were not among the top 20
+  replace_na(list('topgenus' = 'Other')) -> depth_30_tax20_genus
+```
+##print the top20 genera table
+```{r print top20 genera table}
+depth_30_t20_genus%>%
+ arrange(desc(mean_relab))->depth_30_t20_genus_order_decending
+
+pdf("depth_30_genera_top_20_relab_table.pdf", height=8, width=8)
+title <- "30cm Depth, Top 20 Genera, Relative Abundance"
+
+grid::grid.newpage()
+grid::grid.text(title,x = (.5), y = (0.9))
+grid.table(depth_30_t20_genus_order_decending) 
+dev.off()
+```
+
+###looks at the top 20 genera, depth60
+```{r select top 20 most abundant genera depth60}
+# Select the 20 most abundant genera
+seqtab %>%
+  inner_join(tax, by = 'seqid')%>%
+  #filter out non-60 depths
+  filter(depth=="60")%>%
+  group_by(Genus, sample)%>%
+  # Calculate the relative abundance of each genus in each sample
+  summarise(relab = sum(relab))%>%
+  # Calculate the mean relative abundance of each genus over the samples
+  summarise(mean_relab = sum(relab))%>%
+  ungroup() %>%
+  # Filter out non-assigned genera
+  filter(!is.na(Genus))%>%
+  # Select the top 20
+  top_n(20, mean_relab) -> depth_60_t20_genus
+
+# Add this information to the taxonomy table as the column topgenus
+tax %>%
+  # Join in the top 20 table
+  left_join(depth_60_t20_genus %>% transmute(Genus, topgenus = Genus), by = 'Genus') %>%
+  # Set topgenus to 'Other' for those that were not among the top 20
+  replace_na(list('topgenus' = 'Other')) -> depth_60_tax20_genus
+```
+##print the top20 genera table
+```{r print top20 genera table}
+depth_60_t20_genus%>%
+ arrange(desc(mean_relab))->depth_60_t20_genus_order_decending
+
+pdf("depth_60_genera_top_20_relab_table.pdf", height=8, width=8)
+title <- "60cm Depth, Top 20 Genera, Relative Abundance"
+
+grid::grid.newpage()
+grid::grid.text(title,x = (.5), y = (0.9))
+grid.table(depth_60_t20_genus_order_decending) 
+dev.off()
+```
+
+### merge depth relab tables into single table.
+```{r merge relab depth tables}
+
+## here is where we'll put the code to merge the depth tables together
+
+```
+
+
+
+##Boxplots
+##Boxplots
+##Boxplots
+##Boxplots
+##Boxplots
+
+
+```{r}
+library(RColorBrewer)
+
+
+seqtab %>%
+  inner_join(tax20_genus, by = 'seqid' ) %>%
+  group_by(topgenus, sample) %>%
+  summarise(relab = sum(relab)) %>% ungroup()%>%
+  inner_join(smd, by = 'sample')->genabund
+```
+
+###split by depths
+
+```{r}  
+  ggplot(genabund,aes(
+ x = relab, 
+ y =fct_relevel(date, c("ref","7/11/2016","2/5/2017","3/8/2017","24/10/2017","9/5/2018")),
+ fill = fct_relevel(topgenus, c("Other")))) +
+   theme_bw() + 
+  facet_grid(. ~ depth, scales = "free_x")+
+ 
+  ylab('Sampling date') + xlab("Relative abundance") +
+  #ggtitle("top 20 genera, \nsplit by depths, \ngrouped by date, \ncombined reps")+
+ geom_col() +
+ scale_fill_manual(values = colorRampPalette(brewer.pal(9, "Paired"))(21)) +
+ coord_flip() +
+ theme(legend.position = 'bottom', 
+       panel.background = element_blank(),
+       legend.title = element_blank(),
+       #aspect.ratio = 1,
+       axis.ticks.y = element_blank(),
+       text = element_text(colour = "black"),
+       axis.text.y = element_text(hjust = 1),
+       axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+```
+
+#Export the plot
+```{r}
+ggsave("StackedBar_spoils_genustop20_split_by_depths_grouped_by_date_combined reps.pdf", width = 32, height = 21, units = "cm")
+```
+
+###diversity
+###diversity
+###diversity
+###diversity
+###diversity
+
+
+````{r prep for diversity stats, asbio}
+
+## sample metadata
+samples_df <- smd
+sample_meta_data<-smd
+
+## OTUs data
+otu_mat<- feature_table
+
+### tax data 
+tax_mat<- tax
+```
+
+
+```{r give rownames to objects}
+
+### objects need to have row names 
+otu_mat <- otu_mat %>%
+    tibble::column_to_rownames("seqid") 
+
+tax_mat <- tax_mat %>% 
+    tibble::column_to_rownames("seqid")
+
+ samples_df <- samples_df %>% 
+    tibble::column_to_rownames("sample") 
+
+```
+
+```{r convert to matrices}
+###convert tax and otu to matrices 
+otu_mat <- as.matrix(otu_mat)
+tax_mat <- as.matrix(tax_mat)
+
+```
+
+```{r}
+## data is T_otu_mat
+#transpose otu matrix so that sites are rows and species are in columns
+T_otu_mat<-t(otu_mat)
+
+trans_otu_mat<-T_otu_mat
+
+trans_otu_mat<-data.frame(sample= row.names(trans_otu_mat), trans_otu_mat)
+```
+
+### calculate apha diversity
+
+```{r}
+# Shannon's H'
+H<-diversity(T_otu_mat)
+
+# Observed Richness
+richness<-specnumber(T_otu_mat)
+
+# Pielou's Evenness
+evenness<- H/log(richness)
+
+# Create alpha diversity dataframe including environmental data
+alpha <- cbind(shannon = H, richness = richness, pielou = evenness, sample_meta_data)
+
+alpha<-data.frame(sample= row.names(alpha), alpha)
+
+head(alpha)
+
+```
+
+### compare pairwise dissimilarity, all sites
+```{r}
+repl_spoils.mdf<- T_otu_mat
+
+spoils.bray<- vegdist(repl_spoils.mdf, method = "bray")
+
+spoils.bray
+
+spoils.jac <- vegdist(repl_spoils.mdf, method = "jaccard" , binary = T)
+
+spoils.jac
+
+#simper(T_otu_mat, sample_meta_data$date, permutations = 999)
+```
+###PCOA
+```{r}
+# calculate principal coordinates analysis (Bray-Curtis)
+pcoa.spoils.bray <- cmdscale(spoils.bray, k = 2, eig = T)
+
+# extract axis positions for each site from cmdscale object and create a dataframe for plotting
+pcoa.spoils.bray.plotting <- as.data.frame(pcoa.spoils.bray$points)
+colnames(pcoa.spoils.bray.plotting) <- c("axis_1", "axis_2")
+pcoa.spoils.bray.plotting$site <- rownames(pcoa.spoils.bray.plotting)
+
+pcoa.spoils.bray.plotting<-cbind(pcoa.spoils.bray.plotting, sample_meta_data)%>%
+  select (axis_1, axis_2, site, date, depth, ph)
+
+# calculate the proportion of variance in the data which is explained by the first two PCoA axes
+pcoa.spoils.bray$eig[1]/(sum(pcoa.spoils.bray$eig))
+# resulting value is the Xlab 
+```
+```{r}
+pcoa.spoils.bray$eig[2]/(sum(pcoa.spoils.bray$eig))
+#resulting value is the ylab 
+```
+
+```{r}
+# create a PCoA plot
+pcoa.spoils.bray.plot <- ggplot(pcoa.spoils.bray.plotting, aes(x = axis_1, y = axis_2)) +
+  geom_point(aes(colour = depth), size= 3.5) +
+  geom_label_repel(aes(label = date),
+                  box.padding   = 0.35,
+                  point.padding = 0.5,
+                  segment.color = 'grey50') +
+  scale_colour_viridis_d(option = "magma", begin = 0.2, end = 0.8) +
+
+  theme_bw() + 
+  xlab("PCA 1 (26.6%)") + #change these as required
+  ylab("PCA 2 (17.8%)") + #change these as required
+  annotate(geom = 'text', label = 'Bray-Curtis', x = -.35, y = .45, hjust = 1.15, vjust = -1)
+
+
+```
+
+
+
+
+```{r, plot build for publication, pca diversity indices}
+
+
+# create a PCoA plot
+pcoa.spoils.bray.plot <- ggplot(pcoa.spoils.bray.plotting, aes(x = axis_1, y = axis_2)) +
+  geom_point(aes(colour = depth), size= 1.5) +
+  geom_label_repel(aes(label = date, element_text = 5),
+                  box.padding   = 0.35,
+                  point.padding = 0.5,
+                  segment.color = 'grey50') +
+  scale_colour_viridis_d(option = "magma", begin = 0.2, end = 0.8) +
+  theme_bw() + 
+  theme(plot.title =element_text(size= 5),
+        axis.text = element_text(size= 5),)+
+    labs(title = "Beta Diversity")+
+    xlab("PCA 1 (26.6%)") +
+    ylab("PCA 2 (17.8%)") +
+    annotate(geom = 'text', label = 'Bray-Curtis', x = -.35, y = .45, hjust = .8, vjust = -1)
+
+
+plot.shan <- ggplot(alpha, aes(x = fct_relevel(date,c("ref","7/11/2016","2/5/2017","3/8/2017","24/10/2017","9/5/2018")), y = shannon, colour = depth)) +
+  geom_point(size = 1.5) +
+  scale_colour_viridis_d(option = "magma", begin = 0.2, end = 0.8) +
+  labs(title = "Shannon's H'")+
+  ylab("") + 
+  xlab("") +
+  theme_bw() +
+  theme(plot.title =element_text(size= 5),
+        axis.text = element_text(size= 5),
+        axis.text.x = element_text(angle = 90, hjust = .5, vjust = 1))
+
+plot.rich <-ggplot(alpha, aes(x = fct_relevel(date,c("ref","7/11/2016","2/5/2017","3/8/2017","24/10/2017","9/5/2018")), y = richness, colour = depth)) +
+  geom_point(size = 1.5) +
+  scale_colour_viridis_d(option = "magma", begin = 0.2, end = 0.8) +
+  labs( title = "Species Richness")+
+  ylab("") +
+  xlab("") +
+  theme_bw() +
+  theme(plot.title =element_text(size= 5),
+        axis.text = element_text(size= 5),
+        axis.text.x = element_text(angle = 90, hjust = .5, vjust = 1))
+
+plot.even <- ggplot(alpha, aes(x = fct_relevel(date,c("ref","7/11/2016","2/5/2017","3/8/2017","24/10/2017","9/5/2018")), y = evenness, colour = depth)) +
+  geom_point(size = 1.5) +
+  scale_colour_viridis_d(option = "magma", begin = 0.2, end = 0.8) +
+  labs(title = "Pielou's Evenness")+
+  ylab("") +
+  xlab("") +
+  theme_bw() +
+  theme(plot.title =element_text(size= 5),
+        axis.text = element_text(size= 5),
+        axis.text.x = element_text(angle = 90, hjust = .5, vjust = 1))
+
+ph.reg <- ggplot(alpha, aes(
+  x = fct_relevel(date,c("ref","7/11/2016","2/5/2017","3/8/2017","24/10/2017","9/5/2018")), 
+  y = ph, 
+  colour = depth, 
+  scales = "free_x")) +
+  geom_smooth(method = "lm", colour = "black") +
+  geom_point(size = 1.5) +
+  scale_colour_viridis_d(option = "magma", begin = 0.2, end = 0.8) +
+  labs(title= "pH")+
+  ylab("") +
+  xlab("") + 
+  theme_bw()+
+  theme(plot.title =element_text(size= 5),
+        axis.text = element_text(size= 5),
+        axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+
+
+diversity_plots<- grid.arrange (pcoa.spoils.bray.plot + theme(legend.position = 'bottom'),
+              arrangeGrob(plot.shan + theme(legend.position = "none"),
+                          plot.rich + theme(legend.position = "none"), 
+                          plot.even + theme(legend.position = "none"),
+                          ph.reg + theme(legend.position = 'none'),nrow= 1),
+              nrow = 1)
+
+```
+
+```{r}
+ggsave("diversity_indices.pdf",diversity_plots, width = 50, height = 24, units = "cm")
+```
