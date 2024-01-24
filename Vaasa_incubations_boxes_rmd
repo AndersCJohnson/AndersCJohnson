@@ -1,0 +1,1510 @@
+---
+title: "Vaasa_Incubation_boxes"
+author: "anders"
+date: "2023-01-23"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Load required libraries
+
+```{r libraries, message=F, cache = FALSE}
+library(readr)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(kfigr)
+library(knitr)
+# Packages needed to calculate clr
+library(zCompositions)
+library(ALDEx2)
+library(CoDaSeq)
+library(ggrepel)
+library(phyloseq)
+library(asbio)
+library(vegan)
+library(gridExtra)
+library(tidyverse)
+library(ggpubr)
+library(agricolae)
+library(zinbwave)
+library(DESeq2)
+library(apeglm)
+library(scran)
+library(cowplot)
+library(VennDiagram)
+library(pscl)
+library(MASS)
+library(dbplyr)
+library(broom)
+library(emmeans)
+```
+
+
+# set the color palette. this color palette is useful because its colors are easily distinguishable from one another and prohibits the rainboweffect from happening
+```{r set the color palette}
+myColors <- c("#89C5DA", "#DA5724", "#74D944", "#CE50CA", "#3F4921", "#C0717C", "#CBD588", "#5F7FC7", "#673770", "#D3D93E", "#38333E", "#508578", "#D7C1B1", "#689030", "#AD6F3B", "#CD9BCD", "#D14285", "#6DDE88", "#652926", "#7FDCC0", "#C84248", "#8569D5", "#5E738F", "#D1A33D", "#8A7C64", "#599861")
+```
+
+
+##set the working directory
+```{r set working directory}
+setwd("C:/your/file/path")
+```
+
+
+## Read data files
+
+We start by reading in the data files: ASVs (counts), sample data ("metadata") and the taxonomy.
+
+```{r read-counts-data }
+# Read the ASV table and turn it long without zeroes
+ASVs <- read_csv("Incubation_boxes_ASV_table.csv",
+  col_types = cols(.default = col_double(), seqid = col_character())) %>%
+  gather(sample, count, 2:58) %>%
+  # Take away rows with zero count
+  filter(count > 0) %>%
+  # Take away samples with less than 500 observations (this is an arbitrary choice 
+  # to get rid of samples with very low sequencing depth). 
+    #due to low seq depth, samples with less than 500 obsv were not filtered
+  #group_by(sample) %>% 
+  #filter(sum(count) >= 500) %>% 
+  ungroup()
+```
+
+```{r read the taxonomy data}
+# Read the taxonomy table
+taxonomy <- read_csv("Incubation_boxes_ASV_tax.csv", col_types = cols("seqid" = col_character(), "Domain" = col_character(), "Kingdom"  = col_character(), "Class" = col_character(), "Order" = col_character(), "Family" = col_character(), "Genus" = col_character(), "Species" = col_character(), "confidence" = col_double(), "sequence" = col_character())) %>% 
+  # rename "uncultured" to N/A
+  mutate(across(c(Class, Order, Family, Genus, Species), ~na_if(., "uncultured"))) %>%
+  mutate(across(c(Class, Order, Family, Genus, Species), ~na_if(., "uncultured bacterium"))) %>%
+  mutate(across(c(Class, Order, Family, Genus, Species), ~na_if(., "uncultured organism"))) %>%
+  mutate(across(c(Class, Order, Family, Genus, Species), ~na_if(., "uncultured Actinomycetales bacterium"))) 
+  # Rename Feature ID to seqid, the name in the ASV table
+   #rename(seqid = ASV_ID)
+```
+
+```{r read the metadata}
+# Read the sample data ("metadata")
+samples <- read_csv("Incubation_boxes_metadata1.csv", 
+  col_names = TRUE,
+  col_types = cols(.default = col_double(),
+    sample = col_character(),               
+    sample_Identity = col_character(),               
+    treatment_type = col_character(), 
+    treatment = col_character(), 
+    common_name = col_character(),
+    sampling = col_character(),
+    material = col_character(),
+    replicates = col_character(),
+    Dry_weight = col_number(),
+    LOI = col_number(),
+    pH = col_number(),
+    lime_kg_m3 = col_number(),
+    peat_kg_m3 = col_number(),
+    Redox_mV = col_number(),
+    S_percent = col_number(),
+    Fe_percent = col_number(),
+    Ca_percent = col_number())) %>% 
+    
+  
+  # Subset the table to only contain the samples that are in the asvs table (which was 
+  # subset to only contain samples > 500 observations).
+  semi_join(ASVs, by = 'sample')
+# subset to remove rows with NA values
+#samples<-samples[complete.cases(samples), ]
+```
+
+
+```{r}
+sequencing_depth <- read_csv("Incubation_boxes_ASV_table.csv", col_names = TRUE,
+  col_types = cols(.default = col_double(), seqid = col_character()))
+
+asvs<-sequencing_depth%>%
+  gather(sample, count, 2:ncol(.)) %>% 
+  filter(count > 0) %>%
+  group_by(sample) %>% 
+  mutate(relab = count/sum(count)) %>% 
+  filter(n() > 19) %>% 
+  ungroup()
+
+
+sequencing_depth %>%
+  gather(sample, count, -1)%>%
+  group_by(seqid)%>%
+  #filter(count > 0) %>% 
+  ungroup() %>%
+  mutate(count = as.integer(count))%>%
+  # Add metadata
+ inner_join(samples, by = 'sample')%>%
+  # Relative abundance, grouped first by sample name, and then next by rep(sampling replicate identifier)
+  group_by(sample) %>%
+  #group_by(site, zone)%>% #do at sample level first 
+  mutate(relab = count/sum(count)) %>% ungroup() -> sequencing_depth_seqtab
+```
+
+
+```{r, rarefaction_bacteria}
+sequencing_depth_seqtab %>%
+  dplyr::select (seqid, sample, count) %>%
+  spread(seqid, count, fill = 0) %>%
+  column_to_rownames("sample")%>%
+  rarecurve(sample= 100, step = 100, xlab = "Sequencing Depth", ylab = "# of ASVs")
+```
+
+```{r}
+sequencing_depth_seqtab %>%
+  subset(sampling == "start") %>%
+  dplyr::select (seqid, sample, count) %>%
+  spread(seqid, count, fill = 0) %>%
+  column_to_rownames("sample")%>%
+  rarecurve(sample= 100, step = 100, xlab = "Sequencing Depth", ylab = "# of ASVs")
+title(main = "Rarefaction Curve, Parent Sediment")
+```
+
+
+```{r}
+sequencing_depth_seqtab %>%
+  subset(sampling == "mid") %>%
+  dplyr::select (seqid, sample, count) %>%
+  spread(seqid, count, fill = 0) %>%
+  column_to_rownames("sample")%>%
+  rarecurve(sample= 100, step = 100, xlab = "Sequencing Depth", ylab = "# of ASVs")
+title(main = "Rarefaction Curve, Bulk - Mid")
+```
+
+```{r}
+sequencing_depth_seqtab %>%
+  subset(sampling == "end") %>%
+  subset(material == "surface") %>% 
+  dplyr::select (seqid, sample, count) %>%
+  spread(seqid, count, fill = 0) %>%
+  column_to_rownames("sample")%>%
+  rarecurve(sample= 100, step = 100, xlab = "Sequencing Depth", ylab = "# of ASVs")
+title(main = "Rarefaction Curve, End - Surface")
+```
+
+
+
+```{r}
+sequencing_depth_seqtab %>%
+  subset(sampling == "end") %>%
+  subset(material == "aggregates") %>%
+  dplyr::select (seqid, sample, count) %>%
+  spread(seqid, count, fill = 0) %>%
+  column_to_rownames("sample")%>%
+  rarecurve(sample= 100, step = 100, xlab = "Sequencing Depth", ylab = "# of ASVs")
+title(main = "Rarefaction Curve, End - Aggregates")
+```
+
+
+
+
+#Export the plot
+```{r}
+### manually save with right-click "save as"
+```
+
+
+###top20 tables
+
+#bacteria
+
+
+```{r}
+# Read in metadata file
+samples <- read_csv("Incubation_boxes_metadata1.csv", 
+  col_names = TRUE,
+  col_types = cols(.default = col_double(),
+    sample = col_character(),               
+    sample_Identity = col_character(),               
+    treatment_type = col_character(), 
+    treatment = col_character(), 
+    common_name = col_character(),
+    sampling = col_character(),
+    material = col_character(),
+    replicates = col_character(),
+    Dry_weight = col_number(),
+    LOI = col_number(),
+    pH = col_number(),
+    lime_kg_m3 = col_number(),
+    peat_kg_m3 = col_number(),
+    Redox_mV = col_number(),
+    S_percent = col_number(),
+    Fe_percent = col_number(),
+    Ca_percent = col_number()))
+
+
+
+# Read in ASV table
+sequencing_depth <- read_csv("Incubation_boxes_ASV_table.csv", 
+                    col_names = TRUE,
+                    col_types = cols(.default = col_double(), 
+                       seqid = col_character()))
+
+
+
+asvs<-sequencing_depth%>%
+  gather(sample, count, 2:ncol(.)) %>% 
+  filter(count > 0) %>%
+  group_by(sample) %>% 
+  mutate(relab = count/sum(count)) %>% 
+  filter(n() > 19) %>% 
+  ungroup()
+
+
+sequencing_depth %>%
+  gather(sample, count, -1)%>%
+  group_by(seqid)%>%
+  #filter(count > 0) %>% 
+  ungroup() %>%
+  mutate(count = as.integer(count))%>%
+  # Add metadata
+ inner_join(samples, by = 'sample')%>%
+  # Relative abundance, grouped first by sample name, and then next by rep(sampling replicate identifier)
+  group_by(sample) %>%
+  #group_by(site, zone)%>% #do at sample level first 
+  mutate(relab = count/sum(count)) %>% ungroup() -> sequencing_depth_seqtab
+
+
+```
+
+
+```{r}
+seqtab <- sequencing_depth_seqtab
+```
+
+
+
+###looks at the top 20 genera, 
+```{r, select top 20 most abundant genera all}
+# Select the 20 most abundant genera
+seqtab %>%
+  inner_join(taxonomy, by = 'seqid')%>%
+  group_by(Genus, sample)%>%
+  # Calculate the relative abundance of each genus in each sample
+  summarise(relab = sum(relab))%>%
+  # Calculate the mean relative abundance of each genus over the samples
+  summarise(mean_relab = sum(relab))%>%
+  ungroup() %>%
+  # Filter out non-assigned genera
+  filter(!is.na(Genus))%>%
+  # Select the top 20
+  top_n(20, mean_relab) -> t20_genus
+```
+##print the top20 genera table
+```{r print top20 genera table}
+t20_genus%>%
+ arrange(desc(mean_relab))->Incubation_boxes_t20_genus_order_decending
+
+pdf("Figures/Incubation_boxes_genera_top_20_relab_table.pdf", height=8, width=8)
+title <- "Overall, Top 20 Genera, Relative Abundance"
+
+grid::grid.newpage()
+grid::grid.text(title,x = (.5), y = (0.9))
+grid.table(Incubation_boxes_t20_genus_order_decending) 
+dev.off()
+```
+
+
+
+####genera stacked bars  
+
+
+
+#Genera
+
+
+
+```{r assign-top10-genera-to-taxonomy}
+# Start by finding the top 11 genera *on average* over the samples
+p <- asvs %>%
+  inner_join(taxonomy, by = 'seqid') %>%
+  group_by(Genus, sample) %>%
+  # Calculate the relative abundance of each genera in each sample
+  summarise(relab = sum(relab)) %>%
+  # Calculate the *mean* relative abundance of each genera over the samples
+  summarise(mean_relab = sum(relab)) %>%
+  ungroup() %>%
+  # Filter out non-assigned genera
+  filter(!is.na(Genus)) %>%
+  # Select the top 11
+  top_n(20, mean_relab)
+# Add this information to the taxonomy table as the column topgenera
+taxonomy <- taxonomy %>%
+  # Join in the top 10 table. *Important* with left join, otherwise you loose rows in the
+  # taxonomy table that do not appear in the top 11 table.
+  left_join(
+    p %>% 
+      # Duplicate the genera column, with the old name and as "topgenera"
+      transmute(Genus, topgenus = Genus),
+    by = 'Genus'
+  ) %>%
+  # Set topgenus to 'Other' for those that were not among the top 11
+  replace_na(list('topgenus' = 'Other'))
+```
+
+```{r}
+asvs %>%
+  left_join(taxonomy, by = 'seqid') %>%
+  group_by(sample, Genus) %>% summarise(relab = sum(relab)) %>% ungroup() %>%
+  spread(sample, relab, fill = 0) %>%
+  write_csv('asvs.tsv')
+```
+
+### merging triplicates
+```{r}
+# Group samples by the first part of their name 
+samples_grouped <- samples %>%
+  group_by(material) %>%
+  group_by(sampling) %>%
+  group_by(common_name) %>%
+  ungroup()
+```
+
+
+```{r plot-top-genus}
+asvs %>%
+  inner_join(taxonomy, by = 'seqid') %>%
+  inner_join(samples_grouped, by = "sample")%>%
+  group_by(topgenus, sample_Identity, treatment, common_name, sampling, material) %>% summarise(relab = sum(relab)/3) %>% ungroup() %>%
+  ggplot(aes(
+    x = fct_relevel(interaction(common_name , material),rev(c( "Untreated.bulk" , "L40_3.15mm.bulk" , "L10_3.15mm.bulk" ,"L40_2.5um.bulk" , "L10_2.5um.bulk" , "PL10_2.5um.bulk" ,  "Untreated.surface" , "Untreated.aggregates" , "L40_3.15mm.surface" , "L40_3.15mm.aggregates" ,"L10_3.15mm.surface" , "L10_3.15mm.aggregates" ,"L40_2.5um.surface" , "L40_2.5um.aggregates" ,"L10_2.5um.surface" , "L10_2.5um.aggregates" ,"PL10_2.5um.surface" , "PL10_2.5um.aggregates"))),
+    y = relab, 
+    fill = fct_relevel(topgenus, "Other" , after = Inf))) +
+  geom_col() +
+  scale_fill_manual(values = myColors) +
+  facet_grid(. ~ factor(sampling,levels = c("start", "mid", "end")) , scales = "free_x")+
+  coord_flip() +
+  labs(title = "Top 20 Genus-Incubation_boxes_Grouped_triplicates")+
+  ylab("Relative Abundance")+
+  xlab("Site")+
+  theme(
+    legend.position = 'bottom', legend.title = element_blank()) +
+  guides(fill = guide_legend(reverse = TRUE))
+```
+
+```{r}
+ggsave("Figures/Incubation_boxes_StackedBar_Top_20_genus_triplicates.pdf",scale = 2, width = 18, height = 13, units = "cm")
+```
+
+
+
+
+
+##other taxonomic levels 
+#Family
+
+```{r assign-top10-family-to-taxonomy}
+# Start by finding the top 11 family *on average* over the samples
+p <- asvs %>%
+  inner_join(taxonomy, by = 'seqid') %>%
+  group_by(Family, sample) %>%
+  # Calculate the relative abundance of each family in each sample
+  summarise(relab = sum(relab)) %>%
+  # Calculate the *mean* relative abundance of each family over the samples
+  summarise(mean_relab = sum(relab)) %>%
+  ungroup() %>%
+  # Filter out non-assigned family
+  filter(!is.na(Family)) %>%
+  # Select the top 11
+  top_n(20, mean_relab)
+# Add this information to the taxonomy table as the column topfamily
+taxonomy <- taxonomy %>%
+  # Join in the top 10 table. *Important* with left join, otherwise you loose rows in the
+  # taxonomy table that do not appear in the top 11 table.
+  left_join(
+    p %>% 
+      # Duplicate the family column, with the old name and as "topfamily"
+      transmute(Family, topfamily = Family),
+    by = 'Family'
+  ) %>%
+  # Set topfamily to 'Other' for those that were not among the top 11
+  replace_na(list('topfamily' = 'Other'))
+```
+
+```{r}
+asvs %>%
+  left_join(taxonomy, by = 'seqid') %>%
+  group_by(sample, Family) %>% summarise(relab = sum(relab)) %>% ungroup() %>%
+  spread(sample, relab, fill = 0) %>%
+  write_csv('asvs.tsv')
+```
+
+### merging triplicates
+```{r}
+# Group samples by the first part of their name 
+samples_grouped <- samples %>%
+  group_by(material) %>%
+  group_by(sampling) %>%
+  group_by(common_name) %>%
+  ungroup()
+```
+
+
+```{r plot-top-family}
+asvs %>%
+  inner_join(taxonomy, by = 'seqid') %>%
+  inner_join(samples_grouped, by = "sample")%>%
+  group_by(topfamily, sample_Identity, treatment, common_name, sampling, material) %>% summarise(relab = sum(relab)/3) %>% ungroup() %>%
+  ggplot(aes(
+    x = fct_relevel(interaction(common_name , material),rev(c( "Parent Sediment", "Untreated.bulk" , "L40_3.15mm.bulk" , "L10_3.15mm.bulk" ,"L40_2.5um.bulk" , "L10_2.5um.bulk" , "PL10_2.5um.bulk" ,  "Untreated.surface" , "Untreated.aggregates" , "L40_3.15mm.surface" , "L40_3.15mm.aggregates" ,"L10_3.15mm.surface" , "L10_3.15mm.aggregates" ,"L40_2.5um.surface" , "L40_2.5um.aggregates" ,"L10_2.5um.surface" , "L10_2.5um.aggregates" ,"PL10_2.5um.surface" , "PL10_2.5um.aggregates"))),
+    y = relab, 
+    fill = fct_relevel(topfamily, "Other" , after = Inf))) +
+  geom_col() +
+  scale_fill_manual(values = myColors) +
+  facet_grid(. ~ factor(sampling,levels = c("start", "mid", "end")) , scales = "free_x")+
+  coord_flip() +
+  labs(title = "Top 20 Family-Incubation_boxes_Grouped_triplicates")+
+  ylab("Relative Abundance")+
+  xlab("Site")+
+  theme(
+    legend.position = 'bottom', legend.title = element_blank()) +
+  guides(fill = guide_legend(reverse = TRUE))
+```
+
+```{r}
+ggsave("Figures/Incubation_boxes_StackedBar_Top_20_family_triplicates.pdf",scale = 2, width = 18, height = 13, units = "cm")
+```
+
+
+```{r}
+# Your existing code
+family_stacked_bars_data <- asvs %>%
+  inner_join(taxonomy, by = 'seqid') %>%
+  merge(samples) %>%
+  group_by(topfamily, common_name, sampling, material) %>%
+  summarise(relab = sum(relab)/3) %>%
+  ungroup()  # Remove grouping for the next step
+
+# Reshape data for table
+family_table_data <- family_stacked_bars_data %>%
+  pivot_wider(names_from = topfamily, values_from = relab, values_fill = 0)
+
+# Reorder rows based on the order of sites in the plot
+family_table_data <- family_table_data %>%
+  arrange(match(material, rev(c("Parent Sediment.Parent Sediment" ,"Untreated.bulk" , "L40_3.15mm.bulk" , "L10_3.15mm.bulk" ,"L40_2.5um.bulk" , "L10_2.5um.bulk" , "PL10_2.5um.bulk" ,  "Untreated.surface" , "Untreated.aggregates" , "L40_3.15mm.surface" , "L40_3.15mm.aggregates" ,"L10_3.15mm.surface" , "L10_3.15mm.aggregates" ,"L40_2.5um.surface" , "L40_2.5um.aggregates" ,"L10_2.5um.surface" , "L10_2.5um.aggregates" ,"PL10_2.5um.surface" , "PL10_2.5um.aggregates"))))
+
+family_colSums <- family_table_data %>%
+  group_by(common_name, sampling, material) %>%
+  summarise(across(everything(), mean, na.rm = TRUE), .groups = 'drop')
+
+# Print the table
+print(family_colSums)
+
+# Filter data for each zone
+family_table_data_parentSed <- family_colSums %>% filter(sampling == "start")
+
+
+
+family_table_data_mid <- family_colSums %>% filter(material == "bulk") %>% 
+  arrange(match(common_name, rev(c("Untreated" , "L40_3.15mm" , "L10_3.15mm" ,"L40_2.5um" , "L10_2.5um" , "PL10_2.5um" ))))
+
+family_table_data_end_surface <- family_colSums %>% filter(sampling == "end") %>% filter(material == "surface") %>% arrange(match(common_name, rev(c("Untreated" , "L40_3.15mm" , "L10_3.15mm" ,  "L40_2.5um" , "L10_2.5um" , "PL10_2.5um" ))))
+
+
+family_table_data_end_aggregates <- family_colSums %>% filter(sampling == "end") %>% filter(material == "aggregates") %>% arrange(match(common_name, rev(c("Untreated" , "L40_3.15mm" , "L10_3.15mm" , "L40_2.5um" , "L10_2.5um" , "PL10_2.5um" ))))
+
+# Save each table as a CSV file
+write.csv(family_table_data_parentSed, "figures/LNUASS_family_relab_table_parentSed.csv", row.names = FALSE)
+write.csv(family_table_data_mid, "figures/LNUASS_family_relab_table_mid.csv", row.names = FALSE)
+write.csv(family_table_data_end_surface, "figures/LNUASS_family_relab_table_end_surface.csv", row.names = FALSE)
+write.csv(family_table_data_end_aggregates, "figures/LNUASS_family_relab_table_end_aggregates.csv", row.names = FALSE)
+```
+
+
+
+
+
+
+
+#Order
+
+
+```{r assign-top10-order-to-taxonomy}
+# Start by finding the top 11 order *on average* over the samples
+p <- asvs %>%
+  inner_join(taxonomy, by = 'seqid') %>%
+  group_by(Order, sample) %>%
+  # Calculate the relative abundance of each order in each sample
+  summarise(relab = sum(relab)) %>%
+  # Calculate the *mean* relative abundance of each order over the samples
+  summarise(mean_relab = sum(relab)) %>%
+  ungroup() %>%
+  # Filter out non-assigned order
+  filter(!is.na(Order)) %>%
+  # Select the top 11
+  top_n(20, mean_relab)
+# Add this information to the taxonomy table as the column toporder
+taxonomy <- taxonomy %>%
+  # Join in the top 10 table. *Important* with left join, otherwise you loose rows in the
+  # taxonomy table that do not appear in the top 11 table.
+  left_join(
+    p %>% 
+      # Duplicate the order column, with the old name and as "toporder"
+      transmute(Order, toporder = Order),
+    by = 'Order'
+  ) %>%
+  # Set toporder to 'Other' for those that were not among the top 11
+  replace_na(list('toporder' = 'Other'))
+```
+
+```{r}
+asvs %>%
+  left_join(taxonomy, by = 'seqid') %>%
+  group_by(sample, Order) %>% summarise(relab = sum(relab)) %>% ungroup() %>%
+  spread(sample, relab, fill = 0) %>%
+  write_csv('asvs.tsv')
+```
+
+### merging triplicates
+```{r}
+# Group samples by the first part of their name 
+samples_grouped <- samples %>%
+  group_by(material) %>%
+  group_by(sampling) %>%
+  group_by(common_name) %>%
+  ungroup()
+```
+
+
+```{r plot-top-order}
+asvs %>%
+  inner_join(taxonomy, by = 'seqid') %>%
+  inner_join(samples_grouped, by = "sample")%>%
+  group_by(toporder, sample_Identity, treatment, common_name, sampling, material) %>% summarise(relab = sum(relab)/3) %>% ungroup() %>%
+  ggplot(aes(
+    x = fct_relevel(interaction(common_name , material),rev(c("Parent Sediment.bulk" ,"Untreated.bulk" , "L40_3.15mm.bulk" , "L10_3.15mm.bulk" ,"L40_2.5um.bulk" , "L10_2.5um.bulk" , "PL10_2.5um.bulk" ,  "Untreated.surface" , "Untreated.aggregates" , "L40_3.15mm.surface" , "L40_3.15mm.aggregates" ,"L10_3.15mm.surface" , "L10_3.15mm.aggregates" ,"L40_2.5um.surface" , "L40_2.5um.aggregates" ,"L10_2.5um.surface" , "L10_2.5um.aggregates" ,"PL10_2.5um.surface" , "PL10_2.5um.aggregates"))),
+    y = relab, 
+    fill = fct_relevel(toporder, "Other" , after = Inf))) +
+  geom_col() +
+  scale_fill_manual(values = myColors) +
+  facet_grid(. ~ factor(sampling,levels = c("start", "mid", "end")) , scales = "free_x")+
+  coord_flip() +
+  labs(title = "Top 20 Order-Incubation_boxes_Grouped_triplicates")+
+  ylab("Relative Abundance")+
+  xlab("Site")+
+  theme(
+    legend.position = 'bottom', legend.title = element_blank()) +
+  guides(fill = guide_legend(reverse = TRUE))
+```
+
+```{r}
+ggsave("Figures/Incubation_boxes_StackedBar_Top_20_order_triplicates.pdf",scale = 2, width = 18, height = 13, units = "cm")
+```
+
+
+
+
+#Class 
+
+
+```{r assign-top10-class-to-taxonomy}
+# Start by finding the top 11 class *on average* over the samples
+p <- asvs %>%
+  inner_join(taxonomy, by = 'seqid') %>%
+  group_by(Class, sample) %>%
+  # Calculate the relative abundance of each class in each sample
+  summarise(relab = sum(relab)) %>%
+  # Calculate the *mean* relative abundance of each class over the samples
+  summarise(mean_relab = sum(relab)) %>%
+  ungroup() %>%
+  # Filter out non-assigned class
+  filter(!is.na(Class)) %>%
+  # Select the top 11
+  top_n(20, mean_relab)
+# Add this information to the taxonomy table as the column topclass
+taxonomy <- taxonomy %>%
+  # Join in the top 10 table. *Important* with left join, otherwise you loose rows in the
+  # taxonomy table that do not appear in the top 11 table.
+  left_join(
+    p %>% 
+      # Duplicate the class column, with the old name and as "topclass"
+      transmute(Class, topclass = Class),
+    by = 'Class'
+  ) %>%
+  # Set topclass to 'Other' for those that were not among the top 11
+  replace_na(list('topclass' = 'Other'))
+```
+
+```{r}
+asvs %>%
+  left_join(taxonomy, by = 'seqid') %>%
+  group_by(sample, Class) %>% summarise(relab = sum(relab)) %>% ungroup() %>%
+  spread(sample, relab, fill = 0) %>%
+  write_csv('asvs.tsv')
+```
+
+### merging triplicates
+```{r}
+# Group samples by the first part of their name 
+samples_grouped <- samples %>%
+  group_by(material) %>%
+  group_by(sampling) %>%
+  group_by(common_name) %>%
+  ungroup()
+```
+
+
+```{r plot-top-class}
+asvs %>%
+  inner_join(taxonomy, by = 'seqid') %>%
+  inner_join(samples_grouped, by = "sample")%>%
+  group_by(topclass, sample_Identity, treatment, common_name, sampling, material) %>% summarise(relab = sum(relab)/3) %>% ungroup() %>%
+  ggplot(aes(
+    x = fct_relevel(interaction(common_name , material),rev(c("Parent Sediment.bulk" ,"Untreated.bulk" , "L40_3.15mm.bulk" , "L10_3.15mm.bulk" ,"L40_2.5um.bulk" , "L10_2.5um.bulk" , "PL10_2.5um.bulk" ,  "Untreated.surface" , "Untreated.aggregates" , "L40_3.15mm.surface" , "L40_3.15mm.aggregates" ,"L10_3.15mm.surface" , "L10_3.15mm.aggregates" ,"L40_2.5um.surface" , "L40_2.5um.aggregates" ,"L10_2.5um.surface" , "L10_2.5um.aggregates" ,"PL10_2.5um.surface" , "PL10_2.5um.aggregates"))),
+    y = relab, 
+    fill = fct_relevel(topclass, "Other" , after = Inf))) +
+  geom_col() +
+  scale_fill_manual(values = myColors) +
+  facet_grid(. ~ factor(sampling,levels = c("start", "mid", "end")) , scales = "free_x")+
+  coord_flip() +
+  labs(title = "Top 20 Class-Incubation_boxes_Grouped_triplicates")+
+  ylab("Relative Abundance")+
+  xlab("Site")+
+  theme(
+    legend.position = 'bottom', legend.title = element_blank()) +
+  guides(fill = guide_legend(reverse = TRUE))
+```
+
+```{r}
+ggsave("Figures/Incubation_boxes_StackedBar_Top_20_class_triplicates.pdf",scale = 2, width = 18, height = 13, units = "cm")
+```
+
+
+
+
+#Phylum, 
+
+```{r assign-top10-phyla-to-taxonomy}
+# Start by finding the top 11 phyla *on average* over the samples
+p <- asvs %>%
+  inner_join(taxonomy, by = 'seqid') %>%
+  group_by(Phylum, sample) %>%
+  # Calculate the relative abundance of each phyla in each sample
+  summarise(relab = sum(relab)) %>%
+  # Calculate the *mean* relative abundance of each phyla over the samples
+  summarise(mean_relab = sum(relab)) %>%
+  ungroup() %>%
+  # Filter out non-assigned phyla
+  filter(!is.na(Phylum)) %>%
+  # Select the top 11
+  top_n(20, mean_relab)
+# Add this information to the taxonomy table as the column topphyla
+taxonomy <- taxonomy %>%
+  # Join in the top 10 table. *Important* with left join, otherwise you loose rows in the
+  # taxonomy table that do not appear in the top 11 table.
+  left_join(
+    p %>% 
+      # Duplicate the phyla column, with the old name and as "topphyla"
+      transmute(Phylum, topphylum = Phylum),
+    by = 'Phylum'
+  ) %>%
+  # Set topphylum to 'Other' for those that were not among the top 11
+  replace_na(list('topphylum' = 'Other'))
+```
+
+```{r}
+asvs %>%
+  left_join(taxonomy, by = 'seqid') %>%
+  group_by(sample, Phylum) %>% summarise(relab = sum(relab)) %>% ungroup() %>%
+  spread(sample, relab, fill = 0) %>%
+  write_csv('asvs.tsv')
+```
+
+### merging triplicates
+```{r}
+# Group samples by the first part of their name 
+samples_grouped <- samples %>%
+  group_by(material) %>%
+  group_by(sampling) %>%
+  group_by(common_name) %>%
+  ungroup()
+```
+
+
+```{r plot-top-phylum}
+asvs %>%
+  inner_join(taxonomy, by = 'seqid') %>%
+  inner_join(samples_grouped, by = "sample")%>%
+  group_by(topphylum, sample_Identity, treatment, common_name, sampling, material) %>% summarise(relab = sum(relab)/3) %>% ungroup() %>%
+  ggplot(aes(
+    x = fct_relevel(interaction(common_name , material),rev(c("Parent Sediment.bulk" ,"Untreated.bulk" , "L40_3.15mm.bulk" , "L10_3.15mm.bulk" ,"L40_2.5um.bulk" , "L10_2.5um.bulk" , "PL10_2.5um.bulk" ,  "Untreated.surface" , "Untreated.aggregates" , "L40_3.15mm.surface" , "L40_3.15mm.aggregates" ,"L10_3.15mm.surface" , "L10_3.15mm.aggregates" ,"L40_2.5um.surface" , "L40_2.5um.aggregates" ,"L10_2.5um.surface" , "L10_2.5um.aggregates" ,"PL10_2.5um.surface" , "PL10_2.5um.aggregates"))),
+    y = relab, 
+    fill = fct_relevel(topphylum, "Other" , after = Inf))) +
+  geom_col() +
+  scale_fill_manual(values = myColors) +
+  facet_grid(. ~ factor(sampling,levels = c("start", "mid", "end")) , scales = "free_x")+
+  coord_flip() +
+  labs(title = "Top 20 Phylum-Incubation_boxes_Grouped_triplicates")+
+  ylab("Relative Abundance")+
+  xlab("Site")+
+ theme(
+    legend.position = 'bottom', legend.title = element_blank()) +
+  guides(fill = guide_legend(reverse = TRUE))
+```
+
+```{r}
+ggsave("Figures/Incubation_boxes_StackedBar_Top_20_phylum_triplicates.pdf",scale = 2, width = 18, height = 13, units = "cm")
+```
+
+
+
+
+
+# Kingdom, 
+
+
+```{r assign-top10-kingdom-to-taxonomy}
+# Start by finding the top 11 kingdom *on average* over the samples
+p <- asvs %>%
+  inner_join(taxonomy, by = 'seqid') %>%
+  group_by(Kingdom, sample) %>%
+  # Calculate the relative abundance of each kingdom in each sample
+  summarise(relab = sum(relab)) %>%
+  # Calculate the *mean* relative abundance of each kingdom over the samples
+  summarise(mean_relab = sum(relab)) %>%
+  ungroup() %>%
+  # Filter out non-assigned kingdom
+  filter(!is.na(Kingdom)) %>%
+  # Select the top 11
+  top_n(20, mean_relab)
+# Add this information to the taxonomy table as the column topkingdom
+taxonomy <- taxonomy %>%
+  # Join in the top 10 table. *Important* with left join, otherwise you loose rows in the
+  # taxonomy table that do not appear in the top 11 table.
+  left_join(
+    p %>% 
+      # Duplicate the kingdom column, with the old name and as "topkingdom"
+      transmute(Kingdom, topkingdom = Kingdom),
+    by = 'Kingdom'
+  ) %>%
+  # Set topkingdom to 'Other' for those that were not among the top 11
+  replace_na(list('topkingdom' = 'Other'))
+```
+
+```{r}
+asvs %>%
+  left_join(taxonomy, by = 'seqid') %>%
+  group_by(sample, Kingdom) %>% summarise(relab = sum(relab)) %>% ungroup() %>%
+  spread(sample, relab, fill = 0) %>%
+  write_csv('asvs.tsv')
+```
+
+### merging triplicates
+```{r}
+# Group samples by the first part of their name 
+samples_grouped <- samples %>%
+  group_by(material) %>%
+  group_by(sampling) %>%
+  group_by(common_name) %>%
+  ungroup()
+```
+
+
+```{r plot-top-kingdom}
+asvs %>%
+  inner_join(taxonomy, by = 'seqid') %>%
+  inner_join(samples_grouped, by = "sample")%>%
+  group_by(topkingdom, sample_Identity, treatment, common_name, sampling, material) %>% summarise(relab = sum(relab)/3) %>% ungroup() %>%
+  ggplot(aes(
+    x = fct_relevel(interaction(common_name , material),rev(c("Parent Sediment.bulk" ,"Untreated.bulk" , "L40_3.15mm.bulk" , "L10_3.15mm.bulk" ,"L40_2.5um.bulk" , "L10_2.5um.bulk" , "PL10_2.5um.bulk" ,  "Untreated.surface" , "Untreated.aggregates" , "L40_3.15mm.surface" , "L40_3.15mm.aggregates" ,"L10_3.15mm.surface" , "L10_3.15mm.aggregates" ,"L40_2.5um.surface" , "L40_2.5um.aggregates" ,"L10_2.5um.surface" , "L10_2.5um.aggregates" ,"PL10_2.5um.surface" , "PL10_2.5um.aggregates"))),
+    y = relab, 
+    fill = fct_relevel(topkingdom, "Other" , after = Inf))) +
+  geom_col() +
+  scale_fill_manual(values = myColors) +
+  facet_grid(. ~ factor(sampling,levels = c("start", "mid", "end")) , scales = "free_x")+
+  coord_flip() +
+  labs(title = "Top 20 Kingdom-Incubation_boxes_Grouped_triplicates")+
+  ylab("Relative Abundance")+
+  xlab("Site")+
+  theme(
+    legend.position = 'bottom', legend.title = element_blank()) +
+  guides(fill = guide_legend(reverse = TRUE))
+```
+
+```{r}
+ggsave("Figures/Incubation_boxes_StackedBar_Top_20_kingdom_triplicates.pdf",scale = 2, width = 18, height = 13, units = "cm")
+```
+
+
+
+
+
+#Domain 
+```{r assign-top10-domain-to-taxonomy}
+# Start by finding the top 11 domain *on average* over the samples
+p <- asvs %>%
+  inner_join(taxonomy, by = 'seqid') %>%
+  group_by(Domain, sample) %>%
+  # Calculate the relative abundance of each domain in each sample
+  summarise(relab = sum(relab)) %>%
+  # Calculate the *mean* relative abundance of each domain over the samples
+  summarise(mean_relab = sum(relab)) %>%
+  ungroup() %>%
+  # Filter out non-assigned domain
+  filter(!is.na(Domain)) %>%
+  # Select the top 11
+  top_n(20, mean_relab)
+# Add this information to the taxonomy table as the column topdomain
+taxonomy <- taxonomy %>%
+  # Join in the top 10 table. *Important* with left join, otherwise you loose rows in the
+  # taxonomy table that do not appear in the top 11 table.
+  left_join(
+    p %>% 
+      # Duplicate the domain column, with the old name and as "topdomain"
+      transmute(Domain, topdomain = Domain),
+    by = 'Domain'
+  ) %>%
+  # Set topdomain to 'Other' for those that were not among the top 11
+  replace_na(list('topdomain' = 'Other'))
+```
+
+```{r}
+asvs %>%
+  left_join(taxonomy, by = 'seqid') %>%
+  group_by(sample, Domain) %>% summarise(relab = sum(relab)) %>% ungroup() %>%
+  spread(sample, relab, fill = 0) %>%
+  write_csv('asvs.tsv')
+```
+
+### merging triplicates
+```{r}
+# Group samples by the first part of their name 
+samples_grouped <- samples %>%
+  group_by(material) %>%
+  group_by(sampling) %>%
+  group_by(common_name) %>%
+  ungroup()
+```
+
+
+```{r plot-top-domain}
+asvs %>%
+  inner_join(taxonomy, by = 'seqid') %>%
+  inner_join(samples_grouped, by = "sample")%>%
+  group_by(topdomain, sample_Identity, treatment, common_name, sampling, material) %>% summarise(relab = sum(relab)/3) %>% ungroup() %>%
+  ggplot(aes(
+    x = fct_relevel(interaction(common_name , material),rev(c("Parent Sediment.bulk" ,"Untreated.bulk" , "L40_3.15mm.bulk" , "L10_3.15mm.bulk" ,"L40_2.5um.bulk" , "L10_2.5um.bulk" , "PL10_2.5um.bulk" ,  "Untreated.surface" , "Untreated.aggregates" , "L40_3.15mm.surface" , "L40_3.15mm.aggregates" ,"L10_3.15mm.surface" , "L10_3.15mm.aggregates" ,"L40_2.5um.surface" , "L40_2.5um.aggregates" ,"L10_2.5um.surface" , "L10_2.5um.aggregates" ,"PL10_2.5um.surface" , "PL10_2.5um.aggregates"))),
+    y = relab, 
+    fill = fct_relevel(topdomain, "Other" , after = Inf))) +
+  geom_col() +
+  scale_fill_manual(values = myColors) +
+  facet_grid(. ~ factor(sampling,levels = c("start", "mid", "end")) , scales = "free_x")+
+  coord_flip() +
+  labs(title = "Top 20 Domain-Incubation_boxes_Grouped_triplicates")+
+  ylab("Relative Abundance")+
+  xlab("Site")+
+  theme(
+    legend.position = 'bottom', legend.title = element_blank()) +
+  guides(fill = guide_legend(reverse = TRUE))
+```
+
+```{r}
+ggsave("Figures/Incubation_boxes_StackedBar_Top_20_domain_triplicates.pdf",scale = 2, width = 18, height = 13, units = "cm")
+```
+
+
+
+
+
+
+
+
+
+#DIversity indicies and PCA
+
+
+```{r simple NMDS}
+
+
+feature_table <- read_csv("Incubation_boxes_ASV_table.csv",
+  col_types = cols(.default = col_double(), seqid = col_character()))
+
+T_otu_mat <- feature_table %>% tibble::column_to_rownames("seqid") %>% as.matrix() %>% t()
+
+
+tax_mat <- taxonomy %>% tibble::column_to_rownames("seqid") %>% as.matrix()
+
+samples_nmds <- samples_grouped %>% tibble::column_to_rownames("sample")%>% as.matrix()
+  
+
+# Shannon's H' library(vegan)
+H<-diversity(T_otu_mat)
+
+# Observed Richness
+richness<-specnumber(T_otu_mat)
+
+# Pielou's Evenness
+evenness<- H/log(richness)
+
+# Create alpha diversity dataframe including environmental data, Dry_weight , LOI, pH, redox_mV
+alpha <- cbind(shannon = H, richness = richness, pielou = evenness, samples_nmds) 
+
+alpha<-data.frame(sample= row.names(alpha), alpha)
+
+head(alpha)
+
+repl_Incubation_boxes.mdf<- T_otu_mat
+
+Incubation_boxes.bray<- vegdist(repl_Incubation_boxes.mdf, method = "bray")
+
+Incubation_boxes.bray
+
+Incubation_boxes.jac <- vegdist(repl_Incubation_boxes.mdf, method = "jaccard" , binary = T)
+
+Incubation_boxes.jac
+
+###PCOA
+
+# calculate principal coordinates analysis (Bray-Curtis)
+pcoa.Incubation_boxes.bray <- cmdscale(Incubation_boxes.bray, k = 2, eig = T)
+
+# extract axis positions for each site from cmdscale object and create a dataframe for plotting
+pcoa.Incubation_boxes.bray.plotting <- as.data.frame(pcoa.Incubation_boxes.bray$points)
+colnames(pcoa.Incubation_boxes.bray.plotting) <- c("axis_1", "axis_2")
+pcoa.Incubation_boxes.bray.plotting$site <- rownames(pcoa.Incubation_boxes.bray.plotting)
+
+pcoa.Incubation_boxes.bray.plotting <- cbind(pcoa.Incubation_boxes.bray.plotting, samples_nmds)
+#%>%select (axis_1, axis_2, Dry_weight , LOI, pH, redox_mV)
+
+# calculate the proportion of variance in the data which is explained by the first two PCoA axes
+pcoa.Incubation_boxes.bray$eig[1]/(sum(pcoa.Incubation_boxes.bray$eig))
+# resulting value is the Xlab 
+```
+```{r}
+pcoa.Incubation_boxes.bray$eig[2]/(sum(pcoa.Incubation_boxes.bray$eig))
+#resulting value is the ylab 
+```
+
+```{r}
+# create a PCoA plot
+pcoa.Incubation_boxes.bray.plot <- ggplot(pcoa.Incubation_boxes.bray.plotting, aes(x = axis_1, y = axis_2)) +
+  geom_point(aes(colour = common_name, shape = interaction(material,sampling)), size= 1.5) +
+  #geom_text_repel(aes(label = N_to_S_Site_names, element_text = 5),
+   #               max.overlaps = Inf,
+    #              min.segment.length = 0,
+     #             box.padding   = 0.35,
+      #            point.padding = 0.5,
+       #           segment.color = 'grey50') +
+   scale_color_manual(values = myColors) +
+  theme_bw() + 
+  theme(plot.title =element_text(size= 5),
+        axis.text = element_text(size= 5),)+
+    labs(title = "Beta Diversity")+
+    xlab("PCA 1 (12.9%)") +
+    ylab("PCA 2 (9.1%)") +
+    annotate(geom = 'text', label = 'Bray-Curtis', x = -.35, y = .45, hjust = .8, vjust = -1)
+
+plot(pcoa.Incubation_boxes.bray.plot)
+```
+
+```{r}
+ggsave("Figures/Incubation_boxes_nmds_no_normalization.pdf", width = 18, height = 13, units = "cm")
+```
+
+
+
+```{r}
+plot.shan <- ggplot(alpha, aes(
+  x = fct_relevel(interaction( common_name , material, sampling),c("Parent Sediment.bulk.start" , "Untreated.bulk.mid" , "L40_3.15mm.bulk.mid" , "L10_3.15mm.bulk.mid" ,"L40_2.5um.bulk.mid" , "L10_2.5um.bulk.mid" , "PL10_2.5um.bulk.mid" ,  "Untreated.surface.end" , "Untreated.aggregates.end" , "L40_3.15mm.surface.end" , "L40_3.15mm.aggregates.end" ,"L10_3.15mm.surface.end" , "L10_3.15mm.aggregates.end" ,"L40_2.5um.surface.end" , "L40_2.5um.aggregates.end" ,"L10_2.5um.surface.end" , "L10_2.5um.aggregates.end" ,"PL10_2.5um.surface.end" , "PL10_2.5um.aggregates.end")), 
+  y = as.numeric(shannon))) +
+  geom_boxplot(aes(fill = sampling), alpha = 0.5) +
+  scale_fill_manual(values = myColors) +
+  labs(title = "Shannon's H'")+
+  ylab("") + 
+  xlab("") +
+  theme_bw() +
+  theme(plot.title =element_text(size= 5),
+        axis.text = element_text(size= 5),
+        axis.text.x = element_text(angle = 90, hjust = .5, vjust = 1))
+
+plot.rich <-ggplot(alpha, aes(
+  x = fct_relevel(interaction(common_name , material, sampling),c("Parent Sediment.bulk.start" , "Untreated.bulk.mid" , "L40_3.15mm.bulk.mid" , "L10_3.15mm.bulk.mid" ,"L40_2.5um.bulk.mid" , "L10_2.5um.bulk.mid" , "PL10_2.5um.bulk.mid" ,  "Untreated.surface.end" , "Untreated.aggregates.end" , "L40_3.15mm.surface.end" , "L40_3.15mm.aggregates.end" ,"L10_3.15mm.surface.end" , "L10_3.15mm.aggregates.end" ,"L40_2.5um.surface.end" , "L40_2.5um.aggregates.end" ,"L10_2.5um.surface.end" , "L10_2.5um.aggregates.end" ,"PL10_2.5um.surface.end" , "PL10_2.5um.aggregates.end")), 
+  y = as.numeric(richness))) +
+  geom_boxplot(aes(fill = sampling), alpha = 0.5) +
+  scale_fill_manual(values = myColors) +
+  labs( title = "Species Richness")+
+  ylab("") +
+  xlab("") +
+  theme_bw() +
+  theme(plot.title =element_text(size= 5),
+        axis.text = element_text(size= 5),
+        axis.text.x = element_text(angle = 90, hjust = .5, vjust = 1))
+
+plot.even <- ggplot(alpha, aes(
+  x = fct_relevel(interaction(common_name , material, sampling),c("Parent Sediment.bulk.start" , "Untreated.bulk.mid" , "L40_3.15mm.bulk.mid" , "L10_3.15mm.bulk.mid" ,"L40_2.5um.bulk.mid" , "L10_2.5um.bulk.mid" , "PL10_2.5um.bulk.mid" ,  "Untreated.surface.end" , "Untreated.aggregates.end" , "L40_3.15mm.surface.end" , "L40_3.15mm.aggregates.end" ,"L10_3.15mm.surface.end" , "L10_3.15mm.aggregates.end" ,"L40_2.5um.surface.end" , "L40_2.5um.aggregates.end" ,"L10_2.5um.surface.end" , "L10_2.5um.aggregates.end" ,"PL10_2.5um.surface.end" , "PL10_2.5um.aggregates.end")), 
+  y = as.numeric(pielou))) +
+  geom_boxplot(aes(fill = sampling), alpha = 0.5) +
+  scale_fill_manual(values = myColors) +
+  labs(title = "Pielou's Evenness")+
+  ylab("") +
+  xlab("") +
+  theme_bw() +
+  theme(plot.title =element_text(size= 5),
+        axis.text = element_text(size= 5),
+        axis.text.x = element_text(angle = 90, hjust = 0, vjust = 1))
+
+
+ggarrange (plot.shan ,
+             plot.rich , 
+             plot.even , 
+           common.legend = TRUE,
+           legend = "bottom",
+           nrow= 1)
+
+
+
+```
+
+```{r}
+ggsave("Figures/Incubation_boxes_diversity_plots.pdf", width = 18, height = 13, units = "cm")
+```
+
+```{r}
+diversity_plots<- grid.arrange (pcoa.Incubation_boxes.bray.plot + theme(legend.position = 'bottom'),
+              arrangeGrob(plot.shan + theme(legend.position = "none"),
+                          plot.rich + theme(legend.position = "none"), 
+                          plot.even + theme(legend.position = "none"),
+                          nrow= 1),
+              nrow = 1)
+```
+
+```{r}
+ggsave("figures/Figure_1_NMDS_and_diversity_plots.pdf",diversity_plots, width = 18, height = 13, units = "cm")
+```
+
+```{r}
+permanova_data <- pcoa.Incubation_boxes.bray.plotting %>% dplyr::select(axis_1, axis_2, common_name, sampling, material)
+
+# Perform PERMANOVA
+permanova_result <- adonis2(cbind(permanova_data$axis_1, permanova_data$axis_2) ~ common_name + sampling + material, data = permanova_data, permutations = 999)
+
+# Print the PERMANOVA results
+print(permanova_result)
+summary(permanova_result)
+```
+
+###these anovas need to be rectified to look at treatment vs treatment
+
+```{r diversity statistics, all sampling and treatment}
+
+
+shannon_anova <- aov(shannon ~  common_name * material * sampling , data = alpha)
+richness_anova <- aov( richness ~  common_name * material * sampling , data = alpha)
+pielou_anova <- aov(pielou ~ common_name * material * sampling, data = alpha)
+
+shannon_tukey <-  TukeyHSD(shannon_anova)
+richness_tukey <- TukeyHSD(richness_anova)
+pielou_tukey <- TukeyHSD(pielou_anova)
+
+
+summary(shannon_anova)
+print(shannon_anova, na.rm = TRUE)
+summary(shannon_tukey)
+print(shannon_tukey, na.rm = TRUE)
+summary(richness_anova)
+print(richness_tukey, na.rm = TRUE)
+summary(pielou_anova)
+print(pielou_tukey, na.rm = TRUE)
+
+options(max.print = 10000) #adjust the number based on needs
+
+# Save ANOVA and Tukey results to text files
+shannon_anova_summary <- capture.output(summary(shannon_anova))
+shannon_tukey_summary <- capture.output(print(shannon_tukey))
+
+richness_anova_summary <- capture.output(summary(richness_anova))
+richness_tukey_summary <- capture.output(print(richness_tukey))
+
+pielou_anova_summary <- capture.output(summary(pielou_anova))
+pielou_tukey_summary <- capture.output(print(pielou_tukey))
+
+
+# Save tables to text files (adjust the file paths and names as needed)
+writeLines(shannon_anova_summary, "Figures/shannon_anova_summary.txt")
+writeLines(shannon_tukey_summary, "Figures/shannon_tukey_summary.txt")
+
+writeLines(richness_anova_summary, "Figures/richness_anova_summary.txt")
+writeLines(richness_tukey_summary, "Figures/richness_tukey_summary.txt")
+
+writeLines(pielou_anova_summary, "Figures/pielou_anova_summary.txt")
+writeLines(pielou_tukey_summary, "Figures/pielou_tukey_summary.txt")
+```
+
+
+
+```{r}
+# Create the interaction variable
+alpha$interaction_group <- interaction(alpha$common_name, alpha$material, alpha$sampling, drop = TRUE)
+
+# Perform ANOVA
+anova_result <- aov(shannon ~ interaction_group, data = alpha)
+
+# Perform Tukey's HSD for post hoc comparisons
+tukey_result <- TukeyHSD(anova_result)
+
+# View ANOVA summary
+summary(anova_result)
+
+# View Tukey's HSD results
+print(tukey_result)
+
+
+# Perform ANOVA
+richness_anova_result <- aov(richness ~ interaction_group, data = alpha)
+
+# Perform Tukey's HSD for post hoc comparisons
+richness_tukey_result <- TukeyHSD(richness_anova_result)
+
+# View ANOVA summary
+summary(richness_anova_result)
+
+# View Tukey's HSD results
+print(richness_tukey_result)
+
+# Perform ANOVA
+evenness_anova_result <- aov(evenness ~ interaction_group, data = alpha)
+
+# Perform Tukey's HSD for post hoc comparisons
+evenness_tukey_result <- TukeyHSD(evenness_anova_result)
+
+# View ANOVA summary
+summary(evenness_anova_result)
+
+# View Tukey's HSD results
+print(evenness_tukey_result)
+
+
+
+```
+
+
+
+
+#reset the ASVS 
+
+```{r read-counts-data }
+# Read the ASV table and turn it long without zeroes
+asvs <- read_csv("Incubation_boxes_ASV_table.csv",
+  col_types = cols(.default = col_double(), seqid = col_character())) %>%
+  gather(sample, count, 2:58) %>%
+  # Take away rows with zero count
+  filter(count > 0) %>%
+  # Take away samples with less than 500 observations (this is an arbitrary choice 
+  # to get rid of samples with very low sequencing depth). 
+    #due to low seq depth, samples with less than 500 obsv were not filtered
+  #group_by(sample) %>% 
+  filter(sum(count) >= 0) %>% 
+  ungroup()
+```
+
+
+## Calculate CLR
+
+We want to have a new column called `clr` in the asvs table.
+
+
+
+```{r calc-clr, this takes a while}
+# This *adds a clr column* to the asvs table.
+# Note that the assignment to "asvs" is last and uses the -> assignment operator.  
+# Since all combinations of sample and seqid will now get a value, clr, the number of rows
+# increases quite a lot.
+asvs %>%
+  # Make the table wide with samples as columns
+  spread(sample, count, fill = 0) %>%
+  # Move the seqid to rowname; this requires a data.frame()
+  data.frame() %>% tibble::column_to_rownames('seqid') %>%
+  # Replace zeroes with probabilities (pseudocounts) (I needed a slightly lower delta than default
+  # not to get negative values) thus CZM in original script. what about geometric bayseian multiplicative(GBM)
+  cmultRepl(method = 'CZM', delta = 0.5, output = 'p-counts') %>%
+  # Calculate the CLR
+  codaSeq.clr(samples.by.row = FALSE) %>%
+  data.frame() %>%
+  tibble::rownames_to_column('sample') %>%
+  gather(seqid, clr, 2:ncol(.)) %>%
+  # Get rid of 'X' that sometimes precedes the seqid and join back with original table
+  mutate(seqid = sub('^X', '', seqid)) %>%
+  left_join(asvs, by = c('sample', 'seqid')) %>%
+  # Set count to 0 if it's NA
+  replace_na(list(count = 0)) ->asvs_CLR
+colnames(asvs_CLR)[2] <- "asv"
+colnames(asvs_CLR)[1] <- "seqid"
+colnames(asvs_CLR)[2] <- "sample"
+
+```
+
+
+
+## Redundancy analysis
+
+Redundancy analysis (RDA) is an ordination method that can be constrained by sample metadata or not.
+In the latter case, it is identical to principle component analysis (PCA). The fact that we with
+clrs have data that is behaving nicely in statistical terms, allowing e.g. euclidian distances to be
+measured, makes it possible for us to us this very powerful methodology.
+
+We start by looking at how PCA works, i.e. only studying the distribution of samples and taxa, using
+the Vegan package's `rda` function.
+
+```{r calc-pca}
+asvs_CLR %>% 
+  # Standard Vegan transformation: Turn table with with samples as *rows*
+  dplyr::select(sample, seqid, clr) %>%
+  spread(seqid, clr) %>%
+  # Turn into a numeric matrix
+  tibble::column_to_rownames('sample') %>% as.matrix() %>%
+  # And call Vegan's rda function that will just do pca unless you give it a 
+  # a second argument (constraining matrix)
+  vegan::rda() -> pca
+```
+
+What's returned by the `rda` funtion is a list object that can be plotted with the base `plot`
+function, but we can also pick out the necessary parts to make a PCA *biplot* of samples and ASVs
+using `ggplot2`.
+
+```{r pca-biplot, fig.height = 6, fig.cap = 'PCA of the samples. Coloured circles are the samples, and black dots the ASVs positions in the PCA coordinate system.'}
+pca.samples <- pca$CA$u %>% data.frame() %>% tibble::rownames_to_column('sample')
+pca.asvs    <- pca$CA$v %>% data.frame() %>% tibble::rownames_to_column('seqid')
+pca.eigs    <- pca$CA$eig %>% data.frame() %>% tibble::rownames_to_column('pc') 
+  colnames(pca.eigs)[2] <- "eigval" 
+pca.eigs <- pca.eigs %>% mutate(propexpl = eigval/sum(eigval))
+# We use the pca.samples table as the "main" table when calling ggplot.
+# Let's first join it with the samples table so we can use some metadata
+# for colouring.
+pca.samples %>%
+  inner_join(samples, by = 'sample')%>%
+  ggplot(aes(x = PC1, y = PC2)) +
+    # Plot the ASVs *behind* the samples, i.e. first
+    geom_point(data = pca.asvs, size = .1) +
+    # Points for samples, coloured by site names, shape by zone
+    geom_point(aes(colour = common_name , shape = interaction(material,sampling))) +
+  geom_text_repel(aes(label = material, element_text = 5),
+                  max.overlaps = Inf,
+                  min.segment.length = 0,
+                  box.padding   = 0.35,
+                  point.padding = 0.5,
+                  segment.color = 'grey50') +
+    scale_fill_manual(values = myColors) +
+    xlab(sprintf("PC1 (%2.1f%% explained)", pca.eigs[1,3] * 100)) +
+    ylab(sprintf("PC2 (%2.1f%% explained)", pca.eigs[2,3] * 100)) 
+```
+
+## Proper RDA with sample data, using CLR data
+
+Below, I'm selecting three variables from the metadata, average soil relative humidity, average soil
+temperature (both continuous) and vegetation (categorical, i.e. yes or no).
+
+
+```{r calc-rda-2vars}
+# Create a matrix object; we need it named, can't generate one on "the fly"
+asvs_CLR %>% dplyr::select(sample, seqid, clr) %>%
+  spread(seqid, clr) %>% tibble::column_to_rownames('sample') -> asv_matrix
+# Here's the call to the rda function with a formula as the first argument,
+vegan::rda(
+  asv_matrix ~ Dry_weight + LOI + pH + Redox_mV, data = samples %>%
+    semi_join(asvs, by = 'sample') %>%
+    #replace_na(list('LOI' = 0.01)) %>%
+    tibble::column_to_rownames('sample'),
+    na.action = "na.exclude"
+) -> rda
+
+```
+
+The results of an RDA analysis can be plotted as a *triplot* with arrows pointing in the direction
+of the environmental parameters (`r figr('rda-triplot', T, type = 'Figure')`). (Usually categorical
+variables are plotted as points and not as arrows as in my figure.)
+
+```{r rda-triplot, fig.height = 6, fig.cap = 'Redundancy analysis (RDA). Samples are plotted together with vectors indicating the influence of the three factors included in the analysis. *Note 1*: Many samples got the same coordinates, and are hence plotted on top of each other. *Note 2*: that the lengths of the factor vectors were divided by four to fit inside the plot. They should hence only be interpreted as directions.'}
+# I need to collect some temporary data sets for the plot
+# This one will contain the proportions explained which we get by dividing the
+# eigenvalue of each component with the sum of eigenvalues for all components.
+p <- c(rda$CCA$eig, rda$CA$eig)/sum(c(rda$CCA$eig, rda$CA$eig))
+
+# This one is collecting the coordinates for arrows that will depict how the 
+# factors in our model point in the coordinate
+a <- rda$CCA$biplot %>% data.frame() %>% tibble::rownames_to_column('factor')
+
+rda$CCA$u %>% data.frame() %>% tibble::rownames_to_column('sample') %>%
+  inner_join(samples, by = 'sample')%>%
+  ggplot(aes(x = RDA1, y = RDA2)) +
+     geom_point(aes(colour = common_name , shape = interaction(material,sampling))) +
+ # geom_text_repel(aes(label = N_to_S_Site_names, element_text = 5),
+  #                max.overlaps = Inf,
+   #               min.segment.length = 0,
+    #              box.padding   = 0.35,
+     #             point.padding = 0.5,
+      #            segment.color = 'grey50') +
+    scale_color_manual(values = myColors) +
+    xlab(sprintf("RDA1 (%2.1f%% explained)", p[[1]] * 100)) +
+    ylab(sprintf("RDA2 (%2.1f%% explained)", p[[2]] * 100)) +
+   
+    geom_segment(
+      data = a, mapping = aes(xend = RDA1, yend = RDA2), 
+      x = 0, y = 0, arrow = arrow()
+    ) +
+    # Print the names of factors halfway along the arrows
+    geom_text(
+      data = a, mapping = aes(x = RDA1, y = RDA2, label = factor), 
+      size = 5)
+  
+```
+
+```{r}
+ggsave("figures/RDA_CLR_ENV.pdf", width = 18, height = 13, units = "cm")
+```
+
+
+
+## Calculate hellinger
+
+We want to have a new column called `hel` in the asvs table but the ASVS table need to be renewed following use with the HEL RDA.
+
+```{r calc-hel, this takes a while}
+# This *adds a hel column* to the asvs table.
+# Note that the assignment to "asvs" is last and uses the -> assignment operator.  
+# Since all combinations of sample and seqid will now get a value, hel, the number of rows
+# increases quite a lot.
+asvs_HEL <- asvs %>%
+  # Make the table wide with samples as columns
+  spread(sample, count, fill = 0) %>%
+  # Move the seqid to rowname; this requires a data.frame()
+  data.frame() %>% tibble::column_to_rownames('seqid')%>%
+  # Replace zeroes with probabilities (pseudocounts) (I needed a slightly lower delta than default
+  # not to get negative values) thus CZM in original script. what about geometric bayseian multiplicative(GBM)
+   cmultRepl(method = 'CZM', delta = 0.5, output = 'p-counts')%>%
+  # Calculate the hel
+  decostand(method = "hellinger") %>%
+  data.frame() %>%
+  tibble::rownames_to_column('sample')%>%
+  gather(seqid, hel, 2:ncol(.)) %>%
+  # Get rid of 'X' that sometimes precedes the seqid and join back with original table
+  mutate(seqid = sub('^X', '', seqid)) %>%
+  left_join(asvs, by = c('sample', 'seqid')) %>%
+  # Set count to 0 if it's NA
+  replace_na(list(count = 0))
+
+  colnames(asvs_HEL)[2] <- "asv"
+  colnames(asvs_HEL)[1] <- "seqid"
+  colnames(asvs_HEL)[2] <- "sample"
+```
+
+```{r calc-pca}
+asvs_HEL %>% 
+  # Standard Vegan transformation: Turn table with with samples as *rows*
+  dplyr::select(sample, seqid, hel) %>%
+  spread(seqid, hel) %>%
+  # Turn into a numeric matrix
+  tibble::column_to_rownames('sample') %>% as.matrix() %>%
+  # And call Vegan's rda function that will just do pca unless you give it a 
+  # a second argument (constraining matrix)
+  vegan::rda() -> pca
+```
+
+What's returned by the `rda` funtion is a list object that can be plotted with the base `plot`
+function, but we can also pick out the necessary parts to make a PCA *biplot* of samples and ASVs
+using `ggplot2`.
+
+```{r pca-biplot, fig.height = 6, fig.cap = 'PCA of the samples. Coloured circles are the samples, and black dots the ASVs positions in the PCA coordinate system.'}
+pca.samples <- pca$CA$u %>% data.frame() %>% tibble::rownames_to_column('sample')
+pca.asvs    <- pca$CA$v %>% data.frame() %>% tibble::rownames_to_column('seqid')
+pca.eigs    <- pca$CA$eig %>% data.frame() %>% tibble::rownames_to_column('pc') 
+  colnames(pca.eigs)[2] <- "eigval" 
+pca.eigs <- pca.eigs %>% mutate(propexpl = eigval/sum(eigval))
+# We use the pca.samples table as the "main" table when calling ggplot.
+# Let's first join it with the samples table so we can use some metadata
+# for colouring.
+pca.samples %>%
+  inner_join(samples, by = 'sample')%>%
+  ggplot(aes(x = PC1, y = PC2)) +
+    # Plot the ASVs *behind* the samples, i.e. first
+    geom_point(data = pca.asvs, size = .1) +
+    # Points for samples, coloured by site names, shape by zone
+    geom_point(aes(colour = common_name , shape = interaction(material,sampling))) +
+  geom_text_repel(aes(label = material, element_text = 5),
+                  max.overlaps = Inf,
+                  min.segment.length = 0,
+                  box.padding   = 0.35,
+                  point.padding = 0.5,
+                  segment.color = 'grey50') +
+    scale_color_manual(values = myColors) +
+    xlab(sprintf("PC1 (%2.1f%% explained)", pca.eigs[1,3] * 100)) +
+    ylab(sprintf("PC2 (%2.1f%% explained)", pca.eigs[2,3] * 100)) 
+```
+
+
+## Proper RDA with sample data, using HEL data
+
+Below, I'm selecting three variables from the metadata, average soil relative humidity, average soil
+temperature (both continuous) and vegetation (categorical, i.e. yes or no).
+
+
+```{r calc-rda-2vars}
+# Create a matrix object; we need it named, can't generate one on "the fly"
+asvs_HEL %>% dplyr::select(sample, seqid, hel) %>%
+  spread(seqid, hel) %>% tibble::column_to_rownames('sample') -> asv_matrix
+# Here's the call to the rda function with a formula as the first argument,
+vegan::rda(
+  asv_matrix ~ pH + Dry_weight + LOI +  Redox_mV, data = samples %>%
+    semi_join(asvs, by = 'sample') %>%
+    #replace_na(list('LOI' = 0.01)) %>%
+    tibble::column_to_rownames('sample'),
+  na.action = "na.exclude"
+) -> rda
+
+```
+
+The results of an RDA analysis can be plotted as a *triplot* with arrows pointing in the direction
+of the environmental parameters (`r figr('rda-triplot', T, type = 'Figure')`). (Usually categorical
+variables are plotted as points and not as arrows as in my figure.)
+
+```{r rda-triplot, fig.height = 6, fig.cap = 'Redundancy analysis (RDA). Samples are plotted together with vectors indicating the influence of the three factors included in the analysis. *Note 1*: Many samples got the same coordinates, and are hence plotted on top of each other. *Note 2*: that the lengths of the factor vectors were divided by four to fit inside the plot. They should hence only be interpreted as directions.'}
+# I need to collect some temporary data sets for the plot
+# This one will contain the proportions explained which we get by dividing the
+# eigenvalue of each component with the sum of eigenvalues for all components.
+p <- c(rda$CCA$eig, rda$CA$eig)/sum(c(rda$CCA$eig, rda$CA$eig))
+
+# This one is collecting the coordinates for arrows that will depict how the 
+# factors in our model point in the coordinate
+a <- rda$CCA$biplot %>% data.frame() %>% tibble::rownames_to_column('factor')
+
+rda$CCA$u %>% data.frame() %>% tibble::rownames_to_column('sample') %>%
+  inner_join(samples, by = 'sample') %>%
+  ggplot(aes(x = RDA1, y = RDA2)) +
+     geom_point(aes(colour = common_name , shape = interaction( material, sampling))) +
+  #geom_text_repel(aes(label = N_to_S_Site_names, element_text = 5),
+   #               max.overlaps = Inf,
+    #              min.segment.length = 0,
+     #             box.padding   = 0.35,
+      #            point.padding = 0.5,
+       #           segment.color = 'grey50') +
+    scale_color_manual(values = myColors) +
+    xlab(sprintf("RDA1 (%2.1f%% explained)", p[[1]] * 100)) +
+    ylab(sprintf("RDA2 (%2.1f%% explained)", p[[2]] * 100)) +
+    
+    geom_segment(
+      data = a, mapping = aes(xend = RDA1/4, yend = RDA2/4), 
+      x = 0, y = 0, arrow = arrow()
+    ) +
+    # Print the names of factors halfway along the arrows
+    geom_text(
+      data = a, mapping = aes(x = RDA1/8, y = RDA2/8, label = factor), 
+      size = 3)
+  
+```
+```{r}
+ggsave("figures/Figure_2_RDA_HEL_ENV.pdf", width = 18, height = 10, units = "cm")
+```
+
+
+
+
+
+
+
+
+
+
