@@ -1,0 +1,58 @@
+sample,sample_Identity,treatment_type,treatment,common_name,sampling,material,replicates,Dry_weight,LOI,pH,lime_kg_m3,peat_kg_m3,Redox_mV,S_percent,Fe_percent,Ca_percent
+P25809_1016,ST-ZTP1,Parent sediment,Parent Sediment-start-bulk,Parent Sediment,start,bulk,A,52.1,5.3,7.84,0,0,68,,,
+P25809_1017,ST-ZTP2,Parent sediment,Parent Sediment-start-bulk,Parent Sediment,start,bulk,A,51.8,5.4,7.92,0,0,36,,,
+P25809_1018,ST-ZTP3,Parent sediment,Parent Sediment-start-bulk,Parent Sediment,start,bulk,A,51.6,5.8,7.98,0,0,38,,,
+P25809_1019,ST1,JK (CaCO3) - 40 kg/m3,L40_3.15mm-mid-bulk,L40_3.15mm,mid,bulk,Q,57.6,5.2,8,40,0,178,,,
+P25809_1020,ST2,Reference,Untreated-mid-bulk,Untreated,mid,bulk,B,52.7,5.4,6.2,0,0,174,,,
+P25809_1021,ST3,C2 (CaCO3) - 40 kg/m3,L40_2.5um-mid-bulk,L40_2.5um,mid,bulk,K,55.7,5.6,8.3,40,0,43,0.72,4.08,3.42
+P25809_1022,ST4,JK (CaCO3) - 40 kg/m3,L40_3.15mm-mid-bulk,L40_3.15mm,mid,bulk,Q,57.8,5.2,8.3,40,0,96,,,
+P25809_1023,ST5,C2 (CaCO3) - 40 kg/m3,L40_2.5um-mid-bulk,L40_2.5um,mid,bulk,K,55.8,5.8,8.4,40,0,110,,,
+P25809_1024,ST7,C2 (CaCO3) - 40 kg/m3,L40_2.5um-mid-bulk,L40_2.5um,mid,bulk,K,54.9,5.7,8.6,40,0,25,,,
+P25809_1025,ST8,JK (CaCO3) - 10 kg/m3,L10_3.15mm-mid-bulk,L10_3.15mm,mid,bulk,N,55.5,5.3,6.6,10,0,189,0.78,4.37,1.77
+P25809_1026,ST9,10 kg/m3 C2 + 10 kg/m3 peat,PL10_2.5um-mid-bulk,PL10_2.5um,mid,bulk,E,54.1,6.6,8.5,10,10,-96,0.7,4.25,1.9
+P25809_1027,ST10,JK (CaCO3) - 40 kg/m3,L40_3.15mm-mid-bulk,L40_3.15mm,mid,bulk,Q,60.2,4.9,8.2,40,0,70,0.72,4.29,3.59
+P25809_1028,ST11,Reference,Untreated-mid-bulk,Untreated,mid,bulk,B,53.7,5.4,6.5,0,0,89,0.77,4.36,1.28
+P25809_1029,ST12,JK (CaCO3) - 10 kg/m3,L10_3.15mm-mid-bulk,L10_3.15mm,mid,bulk,N,57,5.4,7.3,10,0,20,0.79,4.25,1.97
+P25809_1030,ST13,JK (CaCO3) - 10 kg/m3,L10_3.15mm-mid-bulk,L10_3.15mm,mid,bulk,N,54.3,5.2,7.3,10,0,148,0.78,4.37,1.84
+P25809_1031,ST14,C2 (CaCO3) - 10 kg/m3,L10_2.5um-mid-bulk,L10_2.5um,mid,bulk,H,55.2,5.4,8.1,10,0,160,0.79,4.36,1.99
+P25809_1032,ST15,C2 (CaCO3) - 10 kg/m3,L10_2.5um-mid-bulk,L10_2.5um,mid,bulk,H,54,5.2,8.1,10,0,148,0.79,4.27,1.99
+P25809_1033,ST16,10 kg/m3 C2 + 10 kg/m3 peat,PL10_2.5um-mid-bulk,PL10_2.5um,mid,bulk,E,54.9,6.3,8.5,10,10,-96,0.79,4.28,1.91
+P25809_1034,ST18,C2 (CaCO3) - 10 kg/m3,L10_2.5um-mid-bulk,L10_2.5um,mid,bulk,H,53.5,5.3,8.2,10,0,-16,0.69,4.36,1.91
+P25809_1035,ST19,Reference,Untreated-mid-bulk,Untreated,mid,bulk,B,53.2,5.2,6.7,0,0,42,,,
+P25809_1036,ST20,10 kg/m3 C2 + 10 kg/m3 peat,PL10_2.5um-mid-bulk,PL10_2.5um,mid,bulk,E,53.9,6.4,8.5,10,10,0,,,
+P25809_1037,ST1-S,JK (CaCO3) - 40 kg/m3,L40_3.15mm-end-surface,L40_3.15mm,end,surface,R,70.6,5.5,7.86,40,0,386.6,1.32,4.16,3.49
+P25809_1038,ST1-B,JK (CaCO3) - 40 kg/m3,L40_3.15mm-end-aggregates,L40_3.15mm,end,aggregates,S,74.6,5.3,7.55,40,0,312.6,0.45,4.35,3.84
+P25809_1039,ST2-S,Reference,Untreated-end-surface,Untreated,end,surface,C,71.7,7.1,3.34,0,0,718.6,1.58,4.94,1.6
+P25809_1040,ST2-B,Reference,Untreated-end-aggregates,Untreated,end,aggregates,D,71.5,5.6,3.41,0,0,726.6,0.3,4.25,1.22
+P25809_1041,ST3-S,C2 (CaCO3) - 40 kg/m3,L40_2.5um-end-surface,L40_2.5um,end,surface,L,71.8,5.9,8.23,40,0,291.6,1.23,4.04,3.91
+P25809_1042,ST3-B,C2 (CaCO3) - 40 kg/m3,L40_2.5um-end-aggregates,L40_2.5um,end,aggregates,M,69.5,5.5,8.43,40,0,245.6,0.27,4.38,2.98
+P25809_1043,ST4-S,JK (CaCO3) - 40 kg/m3,L40_3.15mm-end-surface,L40_3.15mm,end,surface,R,74.4,5.4,8.2,40,0,303.6,2.49,3.6,5.55
+P25809_1044,ST4-B,JK (CaCO3) - 40 kg/m3,L40_3.15mm-end-aggregates,L40_3.15mm,end,aggregates,S,74.7,5.1,7.75,40,0,279.6,0.42,4.24,3.43
+P25809_1045,ST5-S,C2 (CaCO3) - 40 kg/m3,L40_2.5um-end-surface,L40_2.5um,end,surface,L,74.1,6.2,8.11,40,0,281.6,1.5,3.86,4.12
+P25809_1046,ST5-B,C2 (CaCO3) - 40 kg/m3,L40_2.5um-end-aggregates,L40_2.5um,end,aggregates,M,74.9,5.7,8.11,40,0,264.6,0.41,4.45,3.29
+P25809_1047,ST7-S,C2 (CaCO3) - 40 kg/m3,L40_2.5um-end-surface,L40_2.5um,end,surface,L,73.2,5.7,8.13,40,0,303.6,1.16,4.41,4.35
+P25809_1048,ST7-B,C2 (CaCO3) - 40 kg/m3,L40_2.5um-end-aggregates,L40_2.5um,end,aggregates,M,72.1,5.5,8.26,40,0,289.6,0.46,4.14,3.24
+P25809_1049,ST8-S,JK (CaCO3) - 10 kg/m3,L10_3.15mm-end-surface,L10_3.15mm,end,surface,O,73.3,5.7,4.73,10,0,532.6,1.51,4.15,2.46
+P25809_1050,ST8-B,JK (CaCO3) - 10 kg/m3,L10_3.15mm-end-aggregates,L10_3.15mm,end,aggregates,P,72.4,5.6,5.42,10,0,477.6,0.39,4.28,1.63
+P25809_1051,ST9-S,10 kg/m3 C2 + 10 kg/m3 peat,PL10_2.5um-end-surface,PL10_2.5um,end,surface,F,71.2,6.8,8.05,10,10,377.6,0.65,4.22,2.04
+P25809_1052,ST9-B,10 kg/m3 C2 + 10 kg/m3 peat,PL10_2.5um-end-aggregates,PL10_2.5um,end,aggregates,G,67.6,6.3,8.07,10,10,247.6,0.38,4.39,1.64
+P25809_1053,ST10-S,JK (CaCO3) - 40 kg/m3,L40_3.15mm-end-surface,L40_3.15mm,end,surface,R,69.6,5.1,8.11,40,0,309.6,1.57,4.14,4.45
+P25809_1054,ST10-B,JK (CaCO3) - 40 kg/m3,L40_3.15mm-end-aggregates,L40_3.15mm,end,aggregates,S,67.4,5.2,8.11,40,0,275.6,0.29,4.32,3.27
+P25809_1055,ST11-S,Reference,Untreated-end-surface,Untreated,end,surface,C,63.7,6.2,3.37,0,0,732.6,1.08,5.27,1.83
+P25809_1056,ST11-B,Reference,Untreated-end-aggregates,Untreated,end,aggregates,D,66.2,5.7,3.44,0,0,651.6,0.42,4.24,1.23
+P25809_1057,ST12-S,JK (CaCO3) - 10 kg/m3,L10_3.15mm-end-surface,L10_3.15mm,end,surface,O,69.4,5.5,4.73,10,0,557.6,1.59,4.12,2.64
+P25809_1058,ST12-B,JK (CaCO3) - 10 kg/m3,L10_3.15mm-end-aggregates,L10_3.15mm,end,aggregates,P,67.3,5.6,5.54,10,0,451.6,0.36,4.48,1.57
+P25809_1059,ST13-S,JK (CaCO3) - 10 kg/m3,L10_3.15mm-end-surface,L10_3.15mm,end,surface,O,69.4,5.6,5.51,10,0,481.6,1.07,4.14,2.33
+P25809_1060,ST13-B,JK (CaCO3) - 10 kg/m3,L10_3.15mm-end-aggregates,L10_3.15mm,end,aggregates,P,71.7,5.5,5.64,10,0,423.6,0.46,4.42,1.68
+P25809_1061,ST14-S,C2 (CaCO3) - 10 kg/m3,L10_2.5um-end-surface,L10_2.5um,end,surface,I,66.6,5.7,7.81,10,0,325.6,1.39,3.92,2.61
+P25809_1062,ST14-B,C2 (CaCO3) - 10 kg/m3,L10_2.5um-end-aggregates,L10_2.5um,end,aggregates,J,65.7,5.5,7.82,10,0,289.6,0.42,4.06,1.55
+P25809_1063,ST15-S,C2 (CaCO3) - 10 kg/m3,L10_2.5um-end-surface,L10_2.5um,end,surface,I,67,5.8,7.87,10,0,334.6,0.97,4.19,2.27
+P25809_1064,ST15-B,C2 (CaCO3) - 10 kg/m3,L10_2.5um-end-aggregates,L10_2.5um,end,aggregates,J,63.1,5.5,8.03,10,0,268.6,0.54,4.19,1.71
+P25809_1065,ST16-S,10 kg/m3 C2 + 10 kg/m3 peat,PL10_2.5um-end-surface,PL10_2.5um,end,surface,F,65.1,6.6,8.02,10,10,324.6,0.44,4.5,1.89
+P25809_1066,ST16-B,10 kg/m3 C2 + 10 kg/m3 peat,PL10_2.5um-end-aggregates,PL10_2.5um,end,aggregates,G,61.7,6.1,7.95,10,10,313.6,0.41,4.53,1.6
+P25809_1067,ST18-S,C2 (CaCO3) - 10 kg/m3,L10_2.5um-end-surface,L10_2.5um,end,surface,I,72.7,5.9,7.69,10,0,324.6,1.2,4.33,2.69
+P25809_1068,ST18-B,C2 (CaCO3) - 10 kg/m3,L10_2.5um-end-aggregates,L10_2.5um,end,aggregates,J,72.8,5.6,7.95,10,0,305.6,0.42,3.2,1.72
+P25809_1069,ST19-S,Reference,Untreated-end-surface,Untreated,end,surface,C,70.3,7.6,3.29,0,0,733.6,2.1,4.78,1.8
+P25809_1070,ST19-B,Reference,Untreated-end-aggregates,Untreated,end,aggregates,D,71.7,5.6,3.37,0,0,696.6,0.37,4.46,1.21
+P25809_1071,ST20-S,10 kg/m3 C2 + 10 kg/m3 peat,PL10_2.5um-end-surface,PL10_2.5um,end,surface,F,73.6,7.2,7.94,10,10,332.6,1.33,4.29,2.54
+P25809_1072,ST20-B,10 kg/m3 C2 + 10 kg/m3 peat,PL10_2.5um-end-aggregates,PL10_2.5um,end,aggregates,G,76.8,6.5,8.09,10,10,317.6,0.59,4.32,1.75
