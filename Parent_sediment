@@ -1,0 +1,773 @@
+---
+title: "Chanxxun parent sediemnts"
+author: "anders"
+date: "2024-01-18"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Load required libraries
+
+```{r libraries, message=F, cache = FALSE}
+library(readr)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(kfigr)
+library(knitr)
+# Packages needed to calculate clr
+library(zCompositions)
+library(ALDEx2)
+library(CoDaSeq)
+library(ggrepel)
+library(phyloseq)
+library(asbio)
+library(vegan)
+library(gridExtra)
+library(tidyverse)
+library(ggpubr)
+library(agricolae)
+library(zinbwave)
+library(DESeq2)
+library(apeglm)
+library(scran)
+library(cowplot)
+library(VennDiagram)
+library(pscl)
+library(MASS)
+library(dbplyr)
+library(broom)
+library(emmeans)
+```
+
+
+# set the color palette. this color palette is useful because its colors are easily distinguishable from one another and prohibits the rainboweffect from happening
+```{r set the color palette}
+myColors <- c("#89C5DA", "#DA5724", "#74D944", "#CE50CA", "#3F4921", "#C0717C", "#CBD588", "#5F7FC7", "#673770", "#D3D93E", "#38333E", "#508578", "#D7C1B1", "#689030", "#AD6F3B", "#CD9BCD", "#D14285", "#6DDE88", "#652926", "#7FDCC0", "#C84248", "#8569D5", "#5E738F", "#D1A33D", "#8A7C64", "#599861")
+```
+
+
+##set the working directory
+```{r set working directory}
+setwd("your/file/path/here")
+```
+
+
+## Read data files
+
+We start by reading in the data files: ASVs (counts), sample data ("metadata") and the taxonomy.
+
+```{r read-counts-data }
+# Read the ASV table and turn it long without zeroes
+ASVs <- read_tsv("ParentSed_ASV_table.tsv",
+  col_types = cols(.default = col_double(), seqid = col_character())) %>%
+  gather(sample, count, 2:7) %>%
+  # Take away rows with zero count
+  filter(count > 0) %>%
+  # Take away samples with less than 500 observations (this is an arbitrary choice 
+  # to get rid of samples with very low sequencing depth). 
+    #due to low seq depth, samples with less than 500 obsv were not filtered
+  #group_by(sample) %>% 
+  #filter(sum(count) >= 500) %>% 
+  ungroup()
+```
+
+```{r read the taxonomy data}
+# Read the taxonomy table
+taxonomy <- read_tsv("ParentSed_ASV_tax.tsv", col_types = cols("seqid" = col_character(), "Domain" = col_character(), "Kingdom"  = col_character(), "Class" = col_character(), "Order" = col_character(), "Family" = col_character(), "Genus" = col_character(), "Species" = col_character(), "confidence" = col_double(), "sequence" = col_character())) %>% 
+  # rename "uncultured" to N/A
+  mutate(across(c(Class, Order, Family, Genus, Species), ~na_if(., "uncultured"))) %>%
+  mutate(across(c(Class, Order, Family, Genus, Species), ~na_if(., "uncultured bacterium"))) %>%
+  mutate(across(c(Class, Order, Family, Genus, Species), ~na_if(., "uncultured organism"))) %>%
+  mutate(across(c(Class, Order, Family, Genus, Species), ~na_if(., "uncultured Actinomycetales bacterium"))) 
+  # Rename Feature ID to seqid, the name in the ASV table
+   #rename(seqid = ASV_ID)
+```
+
+```{r read the metadata}
+# Read the sample data ("metadata")
+samples <- read_csv("ParentSed_metadata.csv", 
+  col_names = TRUE,
+  col_types = cols(.default = col_double(),
+    sample = col_character(),               
+    sample_Identity = col_character(),
+    project = col_character())) %>% 
+    
+  
+  # Subset the table to only contain the samples that are in the asvs table (which was 
+  # subset to only contain samples > 500 observations).
+  semi_join(ASVs, by = 'sample')
+# subset to remove rows with NA values
+#samples<-samples[complete.cases(samples), ]
+```
+
+
+```{r}
+sequencing_depth <- read_tsv("ParentSed_ASV_table.tsv", col_names = TRUE,
+  col_types = cols(.default = col_double(), seqid = col_character()))
+
+asvs<-sequencing_depth%>%
+  gather(sample, count, 2:ncol(.)) %>% 
+  filter(count > 0) %>%
+  group_by(sample) %>% 
+  mutate(relab = count/sum(count)) %>% 
+  filter(n() > 1) %>% 
+  ungroup()
+
+
+sequencing_depth %>%
+  gather(sample, count, -1)%>%
+  group_by(seqid)%>%
+  filter(count > 1) %>% 
+  ungroup() %>%
+  mutate(count = as.integer(count))%>%
+  # Add metadata
+ inner_join(samples, by = 'sample')%>%
+  # Relative abundance, grouped first by sample name, and then next by rep(sampling replicate identifier)
+  group_by(sample) %>%
+  #group_by(site, zone)%>% #do at sample level first 
+  mutate(relab = count/sum(count)) %>% ungroup() -> sequencing_depth_seqtab
+```
+
+
+```{r, rarefaction_bacteria}
+sequencing_depth_seqtab %>%
+  subset(project == "coprecip") %>%
+  dplyr::select (seqid, sample, count) %>%
+  spread(seqid, count, fill = 0) %>%
+  column_to_rownames("sample")%>%
+  rarecurve(sample= 100, step = 100, xlab = "Parent sediment Sequencing Depth", ylab = "# of ASVs")
+```
+
+
+
+
+#Export the plot
+```{r}
+### manually save with right-click "save as"
+```
+
+
+###top20 tables
+
+#bacteria
+
+
+```{r}
+# Read in metadata file
+samples <- read_csv("ParentSed_metadata.csv", 
+  col_names = TRUE,
+  col_types = cols(.default = col_double(),
+    sample = col_character(),               
+    sample_Identity = col_character(),               
+    project = col_character()))%>%
+   subset(project == "coprecip")
+
+
+
+# Read in ASV table
+sequencing_depth <- read_tsv("ParentSed_ASV_table.tsv", 
+                    col_names = TRUE,
+                    col_types = cols(.default = col_double(), 
+                       seqid = col_character()))
+
+
+
+asvs<-sequencing_depth%>%
+  gather(sample, count, 2:ncol(.)) %>% 
+  filter(count > 0) %>%
+  group_by(sample) %>% 
+  mutate(relab = count/sum(count)) %>% 
+  filter(n() > 0) %>% 
+  ungroup()
+
+
+sequencing_depth %>%
+  gather(sample, count, -1)%>%
+  group_by(seqid)%>%
+  #filter(count > 0) %>% 
+  ungroup() %>%
+  mutate(count = as.integer(count))%>%
+  # Add metadata
+ inner_join(samples, by = 'sample')%>%
+  # Relative abundance, grouped first by sample name, and then next by rep(sampling replicate identifier)
+  group_by(sample) %>%
+  #group_by(site, zone)%>% #do at sample level first 
+  mutate(relab = count/sum(count)) %>% ungroup() -> sequencing_depth_seqtab
+
+
+```
+
+
+```{r}
+seqtab <- sequencing_depth_seqtab
+```
+
+
+
+###looks at the top 20 genera, 
+```{r, select top 20 most abundant genera all}
+# Select the 20 most abundant genera
+seqtab %>%
+  inner_join(taxonomy, by = 'seqid')%>%
+  group_by(Genus, sample, sample_Identity)%>%
+  # Calculate the relative abundance of each genus in each sample
+  summarise(relab = sum(relab))%>%
+  # Calculate the mean relative abundance of each genus over the samples
+  summarise(mean_relab = sum(relab))%>%
+  ungroup() %>%
+  # Filter out non-assigned genera
+  #filter(!is.na(Genus))%>%
+  # Select the top 20
+  top_n(20, mean_relab) -> t20_genus
+```
+##print the top20 genera table
+```{r print top20 genera table}
+t20_genus%>%
+ arrange(desc(mean_relab))->ParentSed_t20_genus_order_decending
+
+pdf("Figures/ParentSed_genera_top_20_relab_table.pdf", height=8, width=8)
+title <- "Overall, Top 20 Genera, Relative Abundance"
+
+grid::grid.newpage()
+grid::grid.text(title,x = (.5), y = (0.9))
+grid.table(ParentSed_t20_genus_order_decending) 
+dev.off()
+```
+
+
+
+####genera stacked bars  
+
+
+
+#Genera
+
+
+
+```{r assign-top10-genera-to-taxonomy}
+# Start by finding the top 11 genera *on average* over the samples
+p <- asvs %>%
+  inner_join(taxonomy, by = 'seqid') %>%
+  group_by(Genus, sample) %>%
+  # Calculate the relative abundance of each genera in each sample
+  summarise(relab = sum(relab)) %>%
+  # Calculate the *mean* relative abundance of each genera over the samples
+  summarise(mean_relab = sum(relab)) %>%
+  ungroup() %>%
+  # Filter out non-assigned genera
+  filter(!is.na(Genus)) %>%
+  # Select the top 11
+  top_n(20, mean_relab)
+# Add this information to the taxonomy table as the column topgenera
+taxonomy <- taxonomy %>%
+  # Join in the top 10 table. *Important* with left join, otherwise you loose rows in the
+  # taxonomy table that do not appear in the top 11 table.
+  left_join(
+    p %>% 
+      # Duplicate the genera column, with the old name and as "topgenera"
+      transmute(Genus, topgenus = Genus),
+    by = 'Genus'
+  ) %>%
+  # Set topgenus to 'Other' for those that were not among the top 11
+  replace_na(list('topgenus' = 'Other'))
+```
+
+```{r}
+asvs %>%
+  left_join(taxonomy, by = 'seqid') %>%
+  group_by(sample, Genus) %>% summarise(relab = sum(relab)) %>% ungroup() %>%
+  spread(sample, relab, fill = 0) %>%
+  write_csv('asvs.tsv')
+```
+
+### merging triplicates
+```{r}
+# Group samples by the first part of their name 
+samples_grouped <- samples %>%
+  group_by(project) %>%
+  ungroup()
+```
+
+
+```{r plot-top-genus}
+asvs %>%
+  inner_join(taxonomy, by = 'seqid') %>%
+  inner_join(samples_grouped, by = "sample")%>%
+  group_by(topgenus, sample_Identity, project) %>% summarise(relab = sum(relab)/3) %>% ungroup() %>%
+  ggplot(aes(
+    x = project,
+    y = relab, 
+    fill = fct_relevel(topgenus, "Other" , after = Inf))) +
+  geom_col() +
+  scale_fill_manual(values = myColors) +
+  #facet_grid(. ~ factor(sampling,levels = c("start", "mid", "end")) , scales = "free_x")+
+  coord_flip() +
+  labs(title = "Top 20 Genus-ParentSed_Grouped_triplicates")+
+  ylab("Relative Abundance")+
+  xlab("Site")+
+  theme(
+    legend.position = 'bottom', legend.title = element_blank()) +
+  guides(fill = guide_legend(reverse = TRUE))
+```
+
+```{r}
+ggsave("Figures/ParentSed_StackedBar_Top_20_genus_triplicates.pdf", width = 18, height = 8, units = "cm")
+```
+
+
+
+
+
+##other taxonomic levels 
+#Family
+
+```{r assign-top10-family-to-taxonomy}
+# Start by finding the top 11 family *on average* over the samples
+p <- asvs %>%
+  inner_join(taxonomy, by = 'seqid') %>%
+  group_by(Family, sample) %>%
+  # Calculate the relative abundance of each family in each sample
+  summarise(relab = sum(relab)) %>%
+  # Calculate the *mean* relative abundance of each family over the samples
+  summarise(mean_relab = sum(relab)) %>%
+  ungroup() %>%
+  # Filter out non-assigned family
+  filter(!is.na(Family)) %>%
+  # Select the top 11
+  top_n(20, mean_relab)
+# Add this information to the taxonomy table as the column topfamily
+taxonomy <- taxonomy %>%
+  # Join in the top 10 table. *Important* with left join, otherwise you loose rows in the
+  # taxonomy table that do not appear in the top 11 table.
+  left_join(
+    p %>% 
+      # Duplicate the family column, with the old name and as "topfamily"
+      transmute(Family, topfamily = Family),
+    by = 'Family'
+  ) %>%
+  # Set topfamily to 'Other' for those that were not among the top 11
+  replace_na(list('topfamily' = 'Other'))
+```
+
+```{r}
+asvs %>%
+  left_join(taxonomy, by = 'seqid') %>%
+  group_by(sample, Family) %>% summarise(relab = sum(relab)) %>% ungroup() %>%
+  spread(sample, relab, fill = 0) %>%
+  write_csv('asvs.tsv')
+```
+
+### merging triplicates
+```{r}
+# Group samples by the first part of their name 
+samples_grouped <- samples %>%
+  group_by(project) %>%
+  ungroup()
+```
+
+
+```{r plot-top-family}
+asvs %>%
+  inner_join(taxonomy, by = 'seqid') %>%
+  inner_join(samples_grouped, by = "sample")%>%
+  group_by(topfamily, sample_Identity, project) %>% summarise(relab = sum(relab)/3) %>% ungroup() %>%
+  ggplot(aes(
+    x = project,
+    y = relab, 
+    fill = fct_relevel(topfamily, "Other" , after = Inf))) +
+  geom_col() +
+  scale_fill_manual(values = myColors) +
+  coord_flip() +
+  labs(title = "Top 20 Family-ParentSed_Grouped_triplicates")+
+  ylab("Relative Abundance")+
+  xlab("Site")+
+  theme(
+    legend.position = 'bottom', legend.title = element_blank()) +
+  guides(fill = guide_legend(reverse = TRUE))
+```
+
+```{r}
+ggsave("Figures/ParentSed_StackedBar_Top_20_family_triplicates.pdf", width = 18, height = 8, units = "cm")
+```
+
+
+
+
+#Order
+
+
+```{r assign-top10-order-to-taxonomy}
+# Start by finding the top 11 order *on average* over the samples
+p <- asvs %>%
+  inner_join(taxonomy, by = 'seqid') %>%
+  group_by(Order, sample) %>%
+  # Calculate the relative abundance of each order in each sample
+  summarise(relab = sum(relab)) %>%
+  # Calculate the *mean* relative abundance of each order over the samples
+  summarise(mean_relab = sum(relab)) %>%
+  ungroup() %>%
+  # Filter out non-assigned order
+  filter(!is.na(Order)) %>%
+  # Select the top 11
+  top_n(20, mean_relab)
+# Add this information to the taxonomy table as the column toporder
+taxonomy <- taxonomy %>%
+  # Join in the top 10 table. *Important* with left join, otherwise you loose rows in the
+  # taxonomy table that do not appear in the top 11 table.
+  left_join(
+    p %>% 
+      # Duplicate the order column, with the old name and as "toporder"
+      transmute(Order, toporder = Order),
+    by = 'Order'
+  ) %>%
+  # Set toporder to 'Other' for those that were not among the top 11
+  replace_na(list('toporder' = 'Other'))
+```
+
+```{r}
+asvs %>%
+  left_join(taxonomy, by = 'seqid') %>%
+  group_by(sample, Order) %>% summarise(relab = sum(relab)) %>% ungroup() %>%
+  spread(sample, relab, fill = 0) %>%
+  write_csv('asvs.tsv')
+```
+
+### merging triplicates
+```{r}
+# Group samples by the first part of their name 
+samples_grouped <- samples %>%
+  group_by(project) %>%
+  ungroup()
+```
+
+
+```{r plot-top-order}
+asvs %>%
+  inner_join(taxonomy, by = 'seqid') %>%
+  inner_join(samples_grouped, by = "sample")%>%
+  group_by(toporder, sample_Identity, project) %>% summarise(relab = sum(relab)/3) %>% ungroup() %>%
+  ggplot(aes(
+    x = project,
+    y = relab, 
+    fill = fct_relevel(toporder, "Other" , after = Inf))) +
+  geom_col() +
+  scale_fill_manual(values = myColors) +
+  coord_flip() +
+  labs(title = "Top 20 Order-ParentSed_Grouped_triplicates")+
+  ylab("Relative Abundance")+
+  xlab("Site")+
+  theme(
+    legend.position = 'bottom', legend.title = element_blank()) +
+  guides(fill = guide_legend(reverse = TRUE))
+```
+
+```{r}
+ggsave("Figures/ParentSed_StackedBar_Top_20_order_triplicates.pdf", width = 18, height = 8, units = "cm")
+```
+
+
+
+
+#Class 
+
+
+```{r assign-top10-class-to-taxonomy}
+# Start by finding the top 11 class *on average* over the samples
+p <- asvs %>%
+  inner_join(taxonomy, by = 'seqid') %>%
+  group_by(Class, sample) %>%
+  # Calculate the relative abundance of each class in each sample
+  summarise(relab = sum(relab)) %>%
+  # Calculate the *mean* relative abundance of each class over the samples
+  summarise(mean_relab = sum(relab)) %>%
+  ungroup() %>%
+  # Filter out non-assigned class
+  filter(!is.na(Class)) %>%
+  # Select the top 11
+  top_n(20, mean_relab)
+# Add this information to the taxonomy table as the column topclass
+taxonomy <- taxonomy %>%
+  # Join in the top 10 table. *Important* with left join, otherwise you loose rows in the
+  # taxonomy table that do not appear in the top 11 table.
+  left_join(
+    p %>% 
+      # Duplicate the class column, with the old name and as "topclass"
+      transmute(Class, topclass = Class),
+    by = 'Class'
+  ) %>%
+  # Set topclass to 'Other' for those that were not among the top 11
+  replace_na(list('topclass' = 'Other'))
+```
+
+```{r}
+asvs %>%
+  left_join(taxonomy, by = 'seqid') %>%
+  group_by(sample, Class) %>% summarise(relab = sum(relab)) %>% ungroup() %>%
+  spread(sample, relab, fill = 0) %>%
+  write_csv('asvs.tsv')
+```
+
+### merging triplicates
+```{r}
+# Group samples by the first part of their name 
+samples_grouped <- samples %>%
+  group_by(project) %>%
+  ungroup()
+```
+
+
+```{r plot-top-class}
+asvs %>%
+  inner_join(taxonomy, by = 'seqid') %>%
+  inner_join(samples_grouped, by = "sample")%>%
+  group_by(topclass, sample_Identity, project) %>% summarise(relab = sum(relab)/3) %>% ungroup() %>%
+  ggplot(aes(
+    x = project,
+    y = relab, 
+    fill = fct_relevel(topclass, "Other" , after = Inf))) +
+  geom_col() +
+  scale_fill_manual(values = myColors) +
+  coord_flip() +
+  labs(title = "Top 20 Class-ParentSed_Grouped_triplicates")+
+  ylab("Relative Abundance")+
+  xlab("Site")+
+  theme(
+    legend.position = 'bottom', legend.title = element_blank()) +
+  guides(fill = guide_legend(reverse = TRUE))
+```
+
+```{r}
+ggsave("Figures/ParentSed_StackedBar_Top_20_class_triplicates.pdf", width = 18, height = 8, units = "cm")
+```
+
+
+
+
+#Phylum, 
+
+```{r assign-top10-phyla-to-taxonomy}
+# Start by finding the top 11 phyla *on average* over the samples
+p <- asvs %>%
+  inner_join(taxonomy, by = 'seqid') %>%
+  group_by(Phylum, sample) %>%
+  # Calculate the relative abundance of each phyla in each sample
+  summarise(relab = sum(relab)) %>%
+  # Calculate the *mean* relative abundance of each phyla over the samples
+  summarise(mean_relab = sum(relab)) %>%
+  ungroup() %>%
+  # Filter out non-assigned phyla
+  filter(!is.na(Phylum)) %>%
+  # Select the top 11
+  top_n(20, mean_relab)
+# Add this information to the taxonomy table as the column topphyla
+taxonomy <- taxonomy %>%
+  # Join in the top 10 table. *Important* with left join, otherwise you loose rows in the
+  # taxonomy table that do not appear in the top 11 table.
+  left_join(
+    p %>% 
+      # Duplicate the phyla column, with the old name and as "topphyla"
+      transmute(Phylum, topphylum = Phylum),
+    by = 'Phylum'
+  ) %>%
+  # Set topphylum to 'Other' for those that were not among the top 11
+  replace_na(list('topphylum' = 'Other'))
+```
+
+```{r}
+asvs %>%
+  left_join(taxonomy, by = 'seqid') %>%
+  group_by(sample, Phylum) %>% summarise(relab = sum(relab)) %>% ungroup() %>%
+  spread(sample, relab, fill = 0) %>%
+  write_csv('asvs.tsv')
+```
+
+### merging triplicates
+```{r}
+# Group samples by the first part of their name 
+samples_grouped <- samples %>%
+  group_by(project) %>%
+  ungroup()
+```
+
+
+```{r plot-top-phylum}
+asvs %>%
+  inner_join(taxonomy, by = 'seqid') %>%
+  inner_join(samples_grouped, by = "sample")%>%
+  group_by(topphylum, sample_Identity, project) %>% summarise(relab = sum(relab)/3) %>% ungroup() %>%
+  ggplot(aes(
+    x = project,
+    y = relab, 
+    fill = fct_relevel(topphylum, "Other" , after = Inf))) +
+  geom_col() +
+  scale_fill_manual(values = myColors) +
+  coord_flip() +
+  labs(title = "Top 20 Phylum-ParentSed_Grouped_triplicates")+
+  ylab("Relative Abundance")+
+  xlab("Site")+
+ theme(
+    legend.position = 'bottom', legend.title = element_blank()) +
+  guides(fill = guide_legend(reverse = TRUE))
+```
+
+```{r}
+ggsave("Figures/ParentSed_StackedBar_Top_20_phylum_triplicates.pdf", width = 18, height = 8, units = "cm")
+```
+
+
+
+
+
+# Kingdom, 
+
+
+```{r assign-top10-kingdom-to-taxonomy}
+# Start by finding the top 11 kingdom *on average* over the samples
+p <- asvs %>%
+  inner_join(taxonomy, by = 'seqid') %>%
+  group_by(Kingdom, sample) %>%
+  # Calculate the relative abundance of each kingdom in each sample
+  summarise(relab = sum(relab)) %>%
+  # Calculate the *mean* relative abundance of each kingdom over the samples
+  summarise(mean_relab = sum(relab)) %>%
+  ungroup() %>%
+  # Filter out non-assigned kingdom
+  filter(!is.na(Kingdom)) %>%
+  # Select the top 11
+  top_n(20, mean_relab)
+# Add this information to the taxonomy table as the column topkingdom
+taxonomy <- taxonomy %>%
+  # Join in the top 10 table. *Important* with left join, otherwise you loose rows in the
+  # taxonomy table that do not appear in the top 11 table.
+  left_join(
+    p %>% 
+      # Duplicate the kingdom column, with the old name and as "topkingdom"
+      transmute(Kingdom, topkingdom = Kingdom),
+    by = 'Kingdom'
+  ) %>%
+  # Set topkingdom to 'Other' for those that were not among the top 11
+  replace_na(list('topkingdom' = 'Other'))
+```
+
+```{r}
+asvs %>%
+  left_join(taxonomy, by = 'seqid') %>%
+  group_by(sample, Kingdom) %>% summarise(relab = sum(relab)) %>% ungroup() %>%
+  spread(sample, relab, fill = 0) %>%
+  write_csv('asvs.tsv')
+```
+
+### merging triplicates
+```{r}
+# Group samples by the first part of their name 
+samples_grouped <- samples %>%
+  group_by(project) %>%
+  ungroup()
+```
+
+
+```{r plot-top-kingdom}
+asvs %>%
+  inner_join(taxonomy, by = 'seqid') %>%
+  inner_join(samples_grouped, by = "sample")%>%
+  group_by(topkingdom, sample_Identity, project) %>% summarise(relab = sum(relab)/3) %>% ungroup() %>%
+  ggplot(aes(
+    x = project,
+    y = relab, 
+    fill = fct_relevel(topkingdom, "Other" , after = Inf))) +
+  geom_col() +
+  scale_fill_manual(values = myColors) +
+  coord_flip() +
+  labs(title = "Top 20 Kingdom-ParentSed_Grouped_triplicates")+
+  ylab("Relative Abundance")+
+  xlab("Site")+
+  theme(
+    legend.position = 'bottom', legend.title = element_blank()) +
+  guides(fill = guide_legend(reverse = TRUE))
+```
+
+```{r}
+ggsave("Figures/ParentSed_StackedBar_Top_20_kingdom_triplicates.pdf", width = 18, height = 8, units = "cm")
+```
+
+
+
+
+
+#Domain 
+```{r assign-top10-domain-to-taxonomy}
+# Start by finding the top 11 domain *on average* over the samples
+p <- asvs %>%
+  inner_join(taxonomy, by = 'seqid') %>%
+  group_by(Domain, sample) %>%
+  # Calculate the relative abundance of each domain in each sample
+  summarise(relab = sum(relab)) %>%
+  # Calculate the *mean* relative abundance of each domain over the samples
+  summarise(mean_relab = sum(relab)) %>%
+  ungroup() %>%
+  # Filter out non-assigned domain
+  filter(!is.na(Domain)) %>%
+  # Select the top 11
+  top_n(20, mean_relab)
+# Add this information to the taxonomy table as the column topdomain
+taxonomy <- taxonomy %>%
+  # Join in the top 10 table. *Important* with left join, otherwise you loose rows in the
+  # taxonomy table that do not appear in the top 11 table.
+  left_join(
+    p %>% 
+      # Duplicate the domain column, with the old name and as "topdomain"
+      transmute(Domain, topdomain = Domain),
+    by = 'Domain'
+  ) %>%
+  # Set topdomain to 'Other' for those that were not among the top 11
+  replace_na(list('topdomain' = 'Other'))
+```
+
+```{r}
+asvs %>%
+  left_join(taxonomy, by = 'seqid') %>%
+  group_by(sample, Domain) %>% summarise(relab = sum(relab)) %>% ungroup() %>%
+  spread(sample, relab, fill = 0) %>%
+  write_csv('asvs.tsv')
+```
+
+### merging triplicates
+```{r}
+# Group samples by the first part of their name 
+samples_grouped <- samples %>%
+  group_by(project) %>%
+  ungroup()
+```
+
+
+```{r plot-top-domain}
+asvs %>%
+  inner_join(taxonomy, by = 'seqid') %>%
+  inner_join(samples_grouped, by = "sample")%>%
+  group_by(topdomain, sample_Identity, project) %>% summarise(relab = sum(relab)/3) %>% ungroup() %>%
+  ggplot(aes(
+    x = project,
+    y = relab, 
+    fill = fct_relevel(topdomain, "Other" , after = Inf))) +
+  geom_col() +
+  scale_fill_manual(values = myColors) +
+  coord_flip() +
+  labs(title = "Top 20 Domain-ParentSed_Grouped_triplicates")+
+  ylab("Relative Abundance")+
+  xlab("Site")+
+  theme(
+    legend.position = 'bottom', legend.title = element_blank()) +
+  guides(fill = guide_legend(reverse = TRUE))
+```
+
+```{r}
+ggsave("Figures/ParentSed_StackedBar_Top_20_domain_triplicates.pdf", width = 18, height = 8, units = "cm")
+```
+
+
+
+
