@@ -1,0 +1,3481 @@
+---
+title: "AMD_Prevent"
+author: "anders"
+date: "2023-05-04"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Load required libraries
+
+```{r libraries, message=F, cache = FALSE}
+library(readr)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(kfigr)
+library(knitr)
+# Packages needed to calculate clr
+library(zCompositions)
+library(ALDEx2)
+library(CoDaSeq)
+library(ggrepel)
+library(phyloseq)
+library(asbio)
+library(vegan)
+library(gridExtra)
+library(tidyverse)
+library(ggpubr)
+library(agricolae)
+library(zinbwave)
+library(DESeq2)
+library(apeglm)
+library(scran)
+library(cowplot)
+library(VennDiagram)
+library(pscl)
+library(MASS)
+library(dbplyr)
+library(forcats)
+
+
+```
+
+
+# set the color palette. this color palette is useful because its colors are easily distinguishable from one another and prohibits the rainboweffect from happening
+```{r set the color palette}
+myColors <- c("#89C5DA", "#DA5724", "#74D944", "#CE50CA", "#3F4921", "#C0717C", "#CBD588", "#5F7FC7", "#673770", "#D3D93E", "#38333E", "#508578", "#D7C1B1", "#689030", "#AD6F3B", "#CD9BCD", 
+"#D14285", "#6DDE88", "#652926", "#7FDCC0", "#C84248", "#8569D5", "#5E738F", "#D1A33D", 
+"#8A7C64", "#599861")
+```
+
+#set the ggplot2 theme
+
+```{r}
+# Define custom theme
+custom_theme <- theme(
+  text = element_text(family = "sans", size = 10),
+  plot.title = element_text(size = 12, face = "bold", margin = margin(b = 10)),
+  axis.title.x = element_text(size = 12, face = "bold"), 
+  axis.title.y = element_text(size = 10, face = "bold"),
+  axis.text.x = element_text(size = 10),  
+  axis.text.y = element_text(size = 8),   
+  axis.text = element_text(size = 10),
+  legend.title = element_text(margin = margin(t = -10))
+)
+
+# Set the custom theme
+theme_set(custom_theme)
+
+```
+
+
+
+##set the working directory
+```{r set working directory}
+setwd("your/file/path/here")
+```
+
+
+## Read data files
+
+We start by reading in the data files: ASVs (counts), sample data ("metadata") and the taxonomy.
+
+```{r read-counts-data sampling 1}
+# Read the ASV table and turn it long without zeroes
+ASVs_sampling_1 <- read_tsv("AMD_Prevent_sampling_1_ASV_table.tsv",
+  col_types = cols(.default = col_double(), seqid = col_character())) %>%
+  gather(sample, count, 2:89) %>%
+  # Take away rows with zero count
+  filter(count > 0) %>%
+  # Take away samples with less than 500 observations (this is an arbitrary choice 
+  # to get rid of samples with very low sequencing depth). 
+    #due to low seq depth, samples with less than 500 obsv were not filtered
+  #group_by(sample) %>% 
+  #filter(sum(count) >= 500) %>% 
+  ungroup()
+```
+
+```{r read-counts-data sampling 2}
+ASVs_sampling_2 <- read_tsv("AMD_Prevent_sampling_2_ASV_table.tsv",
+  col_types = cols(.default = col_double(), seqid = col_character())) %>%
+  gather(sample, count, 2:78) %>%
+  # Take away rows with zero count
+  filter(count > 0) %>%
+  # Take away samples with less than 500 observations (this is an arbitrary choice 
+  # to get rid of samples with very low sequencing depth). 
+    #due to low seq depth, samples with less than 500 obsv were not filtered
+  #group_by(sample) %>% 
+  #filter(sum(count) >= 500) %>% 
+  ungroup()
+```
+
+#bind the two ASV tables from the samplings together, eg stacking table 1 on table 2
+```{r}
+ASVs <- bind_rows(ASVs_sampling_1, ASVs_sampling_2)
+```
+
+
+
+
+```{r read the taxonomy data sampling 1}
+# Read the taxonomy table
+taxonomy_sampling_1 <- read_tsv("AMD_Prevent_sampling_1_ASV_tax_species.tsv", col_types = cols("seqid" = col_character(), "Domain" = col_character(), "Kingdom"  = col_character(), "Class" = col_character(), "Order" = col_character(), "Family" = col_character(), "Genus" = col_character(), "Species" = col_character(), "confidence" = col_double(), "sequence" = col_character())) %>% 
+  # rename "uncultured" to N/A
+  mutate(across(c(Class, Order, Family, Genus, Species), ~na_if(., "uncultured"))) %>%
+  mutate(across(c(Class, Order, Family, Genus, Species), ~na_if(., "uncultured bacterium"))) %>%
+  mutate(across(c(Class, Order, Family, Genus, Species), ~na_if(., "uncultured organism"))) %>%
+  mutate(across(c(Class, Order, Family, Genus, Species), ~na_if(., "uncultured Actinomycetales bacterium"))) 
+  # Rename Feature ID to seqid, the name in the ASV table
+   #rename(seqid = ASV_ID)
+```
+
+
+```{r read the taxonomy data sampling 2}
+# Read the taxonomy table
+taxonomy_sampling_2 <- read_tsv("AMD_Prevent_sampling_2_ASV_tax_species.tsv", col_types = cols("seqid" = col_character(), "Domain" = col_character(), "Kingdom"  = col_character(), "Class" = col_character(), "Order" = col_character(), "Family" = col_character(), "Genus" = col_character(), "Species" = col_character(), "confidence" = col_double(), "sequence" = col_character())) %>% 
+  # rename "uncultured" to N/A
+  mutate(across(c(Class, Order, Family, Genus, Species), ~na_if(., "uncultured"))) %>%
+  mutate(across(c(Class, Order, Family, Genus, Species), ~na_if(., "uncultured bacterium"))) %>%
+  mutate(across(c(Class, Order, Family, Genus, Species), ~na_if(., "uncultured organism"))) %>%
+  mutate(across(c(Class, Order, Family, Genus, Species), ~na_if(., "uncultured Actinomycetales bacterium"))) 
+  # Rename Feature ID to seqid, the name in the ASV table
+   #rename(seqid = ASV_ID)
+```
+
+```{r}
+taxonomy <- bind_rows(taxonomy_sampling_1, taxonomy_sampling_2 )
+```
+
+
+
+
+
+```{r read the metadata}
+# Read the sample data ("metadata")
+samples <- read_csv("AMD_Prevent_Metadata_sampling_1_and_2.csv", 
+  col_names = TRUE,
+  col_types = cols(.default = col_double(),
+    sample = col_character(),
+    sampling = col_character(),
+    name = col_character(), 
+    area = col_character(), 
+    Rock_age = col_character(),
+    domain = col_character(),
+    field_pH  = col_number(),
+    latitude_longitude = col_character(),
+    Rock_Sample_Name = col_character(),
+    Al_coarse_fraction_percent = col_number(),
+    Al_fine_fraction_percent = col_number(),
+    As_coarse_fraction_mg_kg = col_number(),
+    As_fine_fraction_mg_kg = col_number(),
+    Ba_coarse_fraction_mg_kg = col_number(),
+    Ba_fine_fraction_mg_kg = col_number(),
+    Be_coarse_fraction_mg_kg = col_number(),
+    Be_fine_fraction_mg_kg = col_number(),
+    Ca_coarse_fraction_percent = col_number(),
+    Ca_fine_fraction_percent = col_number(),
+    Cd_coarse_fraction_mg_kg = col_number(),
+    Cd_fine_fraction_mg_kg = col_number(),
+    Co_coarse_fraction_mg_kg = col_number(),
+    Co_fine_fraction_mg_kg = col_number(),
+    Cr_coarse_fraction_mg_kg = col_number(),
+    Cr_fine_fraction_mg_kg = col_number(),
+    Cu_coarse_fraction_mg_kg = col_number(),
+    Cu_fine_fraction_mg_kg = col_number(),
+    Fe_coarse_fraction_percent = col_number(),
+    Fe_fine_fraction_percent = col_number(),
+    Hg_coarse_fraction_mg_kg = col_number(),
+    Hg_fine_fraction_mg_kg = col_number(),
+    K_coarse_fraction_percent = col_number(),
+    K_fine_fraction_percent = col_number(),
+    Mg_coarse_fraction_percent = col_number(),
+    Mg_fine_fraction_percent = col_number(),
+    Mn_coarse_fraction_mg_kg = col_number(),
+    Mn_fine_fraction_mg_kg = col_number(),
+    Mo_coarse_fraction_mg_kg = col_number(),
+    Mo_fine_fraction_mg_kg = col_number(),
+    Na_coarse_fraction_percent = col_number(),
+    Na_fine_fraction_percent = col_number(),
+    Nb_coarse_fraction_mg_kg = col_number(),
+    Nb_fine_fraction_mg_kg = col_number(),
+    Ni_coarse_fraction_mg_kg = col_number(),
+    Ni_fine_fraction_mg_kg = col_number(),
+    P_coarse_fraction_mg_kg = col_number(),
+    P_fine_fraction_mg_kg = col_number(),
+    Pb_coarse_fraction_mg_kg = col_number(),
+    Pb_fine_fraction_mg_kg = col_number(),
+    S_coarse_fraction_percent = col_number(),
+    S_fine_fraction_percent = col_number(),
+    Sb_coarse_fraction_mg_kg = col_number(),
+    Sb_fine_fraction_mg_kg = col_number(),
+    Sc_coarse_fraction_mg_kg = col_number(),
+    Sc_fine_fraction_mg_kg = col_number(),
+    Si_coarse_fraction_percent = col_number(),
+    Si_fine_fraction_percent = col_number(),
+    Sn_coarse_fraction_mg_kg = col_number(),
+    Sn_fine_fraction_mg_kg = col_number(),
+    Sr_coarse_fraction_mg_kg = col_number(),
+    Sr_fine_fraction_mg_kg = col_number(),
+    Ti_coarse_fraction_mg_kg = col_number(),
+    Ti_fine_fraction_percent = col_number(),
+    V_coarse_fraction_mg_kg = col_number(),
+    V_fine_fraction_mg_kg = col_number(),
+    W_coarse_fraction_mg_kg = col_number(),
+    W_fine_fraction_mg_kg = col_number(),
+    Y_coarse_fraction_mg_kg = col_number(),
+    Y_fine_fraction_mg_kg = col_number(),
+    Zn_coarse_fraction_mg_kg = col_number(),
+    Zn_fine_fraction_mg_kg = col_number(),
+    Zr_coarse_fraction_mg_kg = col_number(),
+    Zr_fine_fraction_mg_kg = col_number(),
+    Unnacounted_coarse_fraction_percent = col_number(),
+    Unnacounted_fine_fraction_percent = col_number(),
+    LOI_coarse_fraction_mg_kg = col_number(),
+    LOI_fine_fraction_mg_kg = col_number(),
+    Fe_S_molar_ratio_coarse_fraction = col_number(),
+    Fe_S_molar_ratio_fine_fraction = col_number())) %>% 
+    # Subset the table to only contain the samples that are in the asvs table (which       was subset to only contain samples > 500 observations).
+  semi_join(ASVs, by = 'sample')
+  # subset to remove rows with NA values
+  #samples<-samples[complete.cases(samples), ]
+
+samples_sampling_1 <- samples %>% subset(sampling == "1")
+samples_sampling_2 <- samples %>% subset(sampling == "2")
+```
+
+
+#rarefaction curves, sampling 1 bacteria and archaea
+
+```{r}
+sequencing_depth_sampling_1 <- read_tsv("AMD_Prevent_sampling_1_ASV_table.tsv", col_names = TRUE, col_types = cols(.default = col_double(), seqid = col_character()))
+
+
+asvs_S1<-sequencing_depth_sampling_1%>%
+  gather(sample, count, 2:ncol(.)) %>% 
+  filter(count > 0) %>%
+  group_by(sample) %>% 
+  mutate(relab = count/sum(count)) %>% 
+  filter(n() > 19) %>% 
+  ungroup()
+
+
+sequencing_depth_sampling_1 %>%
+  gather(sample, count, -1)%>%
+  group_by(seqid)%>%
+  #filter(count > 0) %>% 
+  ungroup() %>%
+  mutate(count = as.integer(count))%>%
+  # Add metadata
+ inner_join(samples_sampling_1, by = 'sample')%>%
+  # Relative abundance, grouped first by sample name, and then next by rep(sampling replicate identifier)
+  group_by(sample) %>%
+  #group_by(site, zone)%>% #do at sample level first 
+  mutate(relab = count/sum(count)) %>% ungroup() -> sequencing_depth_seqtab_sampling_1
+```
+
+
+```{r, rarefaction_bacteria_sampling_1}
+ASV_counts_bacteria_sampling_1 <- sequencing_depth_seqtab_sampling_1 %>%
+  subset(domain == "bacteria") %>%
+  dplyr::select(seqid, sample, count) 
+
+total_sum_bacteria_sampling_1 <- sum(ASV_counts_bacteria_sampling_1$count)
+  
+print(total_sum_bacteria_sampling_1)
+
+
+sequencing_depth_seqtab_sampling_1 %>%
+  subset(domain == "bacteria") %>%
+  dplyr::select (seqid, sample, count) %>%
+  spread(seqid, count, fill = 0) %>%
+  column_to_rownames("sample")%>%
+  rarecurve(sample= 100, step = 100, xlab = "Sequencing Depth", ylab = "# of ASVs")
+title(main = "Rarefaction Curve, bacterial primers, sampling 1")
+```
+
+
+```{r,rarefaction_archaea_sampling_1}
+ASV_counts_archaea_sampling_1 <- sequencing_depth_seqtab_sampling_1 %>%
+  subset(domain == "archaea") %>%
+  dplyr::select(seqid, sample, count) 
+
+total_sum_archaea_sampling_1 <- sum(ASV_counts_archaea_sampling_1$count)
+  
+print(total_sum_archaea_sampling_1)
+
+
+
+
+sequencing_depth_seqtab_sampling_1 %>%
+  subset(domain == "archaea") %>%
+  dplyr::select (seqid, sample, count) %>%
+  spread(seqid, count, fill = 0) %>%
+  column_to_rownames("sample")%>%
+  rarecurve(sample= 100, step = 100, xlab = "Sequencing Depth", ylab = "# of ASVs")
+title(main = "Rarefaction Curve, archaeal primers, sampling 1")
+```
+
+
+#rarefaction curves, sampling 2 bacteria and archaea
+
+```{r}
+sequencing_depth_sampling_2 <- read_tsv("AMD_Prevent_sampling_2_ASV_table.tsv", col_names = TRUE, col_types = cols(.default = col_double(), seqid = col_character()))
+
+
+asvs_S2<-sequencing_depth_sampling_2%>%
+  gather(sample, count, 2:ncol(.)) %>% 
+  filter(count > 0) %>%
+  group_by(sample) %>% 
+  mutate(relab = count/sum(count)) %>% 
+  filter(n() > 19) %>% 
+  ungroup()
+
+
+sequencing_depth_sampling_2 %>%
+  gather(sample, count, -1)%>%
+  group_by(seqid)%>%
+  #filter(count > 0) %>% 
+  ungroup() %>%
+  mutate(count = as.integer(count))%>%
+  # Add metadata
+ inner_join(samples_sampling_2, by = 'sample')%>%
+  # Relative abundance, grouped first by sample name, and then next by rep(sampling replicate identifier)
+  group_by(sample) %>%
+  #group_by(site, zone)%>% #do at sample level first 
+  mutate(relab = count/sum(count)) %>% ungroup() -> sequencing_depth_seqtab_sampling_2
+```
+
+
+
+```{r, rarefaction_bacteria_sampling_2}
+
+ASV_counts_bacteria_sampling_2 <- sequencing_depth_seqtab_sampling_2 %>%
+  subset(domain == "bacteria") %>%
+  dplyr::select(seqid, sample, count) 
+
+total_sum_bacteria_sampling_2 <- sum(ASV_counts_bacteria_sampling_2$count)
+  
+print(total_sum_bacteria_sampling_2)
+
+sequencing_depth_seqtab_sampling_2 %>%
+  subset(domain == "bacteria") %>%
+  dplyr::select (seqid, sample, count) %>%
+  spread(seqid, count, fill = 0) %>%
+  column_to_rownames("sample")%>%
+  rarecurve(sample= 100, step = 100, xlab = "Sequencing Depth", ylab = "# of ASVs")
+title(main = "Rarefaction Curve, bacterial primers, sampling 2")
+```
+
+#archaeal primers from the second sampling were dropped due to lack of ASVcounts
+```{r,rarefaction_archaea_sampling_2}
+ASV_counts_archaea_sampling_2 <- sequencing_depth_seqtab_sampling_2 %>%
+  subset(domain == "archaea") %>%
+  dplyr::select(seqid, sample, count) 
+
+total_sum_archaea_sampling_2 <- sum(ASV_counts_archaea_sampling_2$count)
+  
+print(total_sum_archaea_sampling_2)
+
+#sequencing_depth_seqtab_sampling_2 %>%
+  #subset(domain == "archaea") %>%
+  #dplyr::select (seqid, sample, count) %>%
+  #spread(seqid, count, fill = 0) %>%
+  #column_to_rownames("sample")%>%
+  #rarecurve(sample= 100, step = 100, xlab = "Sequencing Depth", ylab = "# of ASVs")
+```
+
+
+  
+
+
+Export the plot
+```{r}
+### manually save with right-click "save as"
+```
+
+
+###top20 tables
+
+#bacteria, brings in the meta data and the relabs to make counts, first bring in sampling 1 and then repeats the process for sampling 2. as the end seqtab_bact combines the two samplings. 
+
+
+```{r read metadata back in}
+samples_meta_data <- read_csv("AMD_Prevent_Metadata_sampling_1_and_2.csv", 
+  col_names = TRUE,
+  col_types = cols(.default = col_double(),
+    sample = col_character(),
+    sampling = col_character(),
+    name = col_character(), 
+    area = col_character(), 
+    Rock_age = col_character(),
+    domain = col_character(),
+    field_pH  = col_number(),
+    latitude_longitude = col_character(),
+    Rock_Sample_Name = col_character(),
+    Al_coarse_fraction_percent = col_number(),
+    Al_fine_fraction_percent = col_number(),
+    As_coarse_fraction_mg_kg = col_number(),
+    As_fine_fraction_mg_kg = col_number(),
+    Ba_coarse_fraction_mg_kg = col_number(),
+    Ba_fine_fraction_mg_kg = col_number(),
+    Be_coarse_fraction_mg_kg = col_number(),
+    Be_fine_fraction_mg_kg = col_number(),
+    Ca_coarse_fraction_percent = col_number(),
+    Ca_fine_fraction_percent = col_number(),
+    Cd_coarse_fraction_mg_kg = col_number(),
+    Cd_fine_fraction_mg_kg = col_number(),
+    Co_coarse_fraction_mg_kg = col_number(),
+    Co_fine_fraction_mg_kg = col_number(),
+    Cr_coarse_fraction_mg_kg = col_number(),
+    Cr_fine_fraction_mg_kg = col_number(),
+    Cu_coarse_fraction_mg_kg = col_number(),
+    Cu_fine_fraction_mg_kg = col_number(),
+    Fe_coarse_fraction_percent = col_number(),
+    Fe_fine_fraction_percent = col_number(),
+    Hg_coarse_fraction_mg_kg = col_number(),
+    Hg_fine_fraction_mg_kg = col_number(),
+    K_coarse_fraction_percent = col_number(),
+    K_fine_fraction_percent = col_number(),
+    Mg_coarse_fraction_percent = col_number(),
+    Mg_fine_fraction_percent = col_number(),
+    Mn_coarse_fraction_mg_kg = col_number(),
+    Mn_fine_fraction_mg_kg = col_number(),
+    Mo_coarse_fraction_mg_kg = col_number(),
+    Mo_fine_fraction_mg_kg = col_number(),
+    Na_coarse_fraction_percent = col_number(),
+    Na_fine_fraction_percent = col_number(),
+    Nb_coarse_fraction_mg_kg = col_number(),
+    Nb_fine_fraction_mg_kg = col_number(),
+    Ni_coarse_fraction_mg_kg = col_number(),
+    Ni_fine_fraction_mg_kg = col_number(),
+    P_coarse_fraction_mg_kg = col_number(),
+    P_fine_fraction_mg_kg = col_number(),
+    Pb_coarse_fraction_mg_kg = col_number(),
+    Pb_fine_fraction_mg_kg = col_number(),
+    S_coarse_fraction_percent = col_number(),
+    S_fine_fraction_percent = col_number(),
+    Sb_coarse_fraction_mg_kg = col_number(),
+    Sb_fine_fraction_mg_kg = col_number(),
+    Sc_coarse_fraction_mg_kg = col_number(),
+    Sc_fine_fraction_mg_kg = col_number(),
+    Si_coarse_fraction_percent = col_number(),
+    Si_fine_fraction_percent = col_number(),
+    Sn_coarse_fraction_mg_kg = col_number(),
+    Sn_fine_fraction_mg_kg = col_number(),
+    Sr_coarse_fraction_mg_kg = col_number(),
+    Sr_fine_fraction_mg_kg = col_number(),
+    Ti_coarse_fraction_mg_kg = col_number(),
+    Ti_fine_fraction_percent = col_number(),
+    V_coarse_fraction_mg_kg = col_number(),
+    V_fine_fraction_mg_kg = col_number(),
+    W_coarse_fraction_mg_kg = col_number(),
+    W_fine_fraction_mg_kg = col_number(),
+    Y_coarse_fraction_mg_kg = col_number(),
+    Y_fine_fraction_mg_kg = col_number(),
+    Zn_coarse_fraction_mg_kg = col_number(),
+    Zn_fine_fraction_mg_kg = col_number(),
+    Zr_coarse_fraction_mg_kg = col_number(),
+    Zr_fine_fraction_mg_kg = col_number(),
+    Unnacounted_coarse_fraction_percent = col_number(),
+    Unnacounted_fine_fraction_percent = col_number(),
+    LOI_coarse_fraction_mg_kg = col_number(),
+    LOI_fine_fraction_mg_kg = col_number(),
+    Fe_S_molar_ratio_coarse_fraction = col_number(),
+    Fe_S_molar_ratio_fine_fraction = col_number()))
+
+```
+
+
+
+
+```{r}
+# Read in metadata file and subsets the bacteria domain
+samples_bact <- samples_meta_data %>%
+  subset(domain == "bacteria")
+
+
+# Read in ASV table for sampling 1
+sequencing_depth_bact_s1 <- read_tsv("AMD_Prevent_sampling_1_ASV_table.tsv",
+  col_types = cols(.default = col_double(), seqid = col_character()))
+
+# Identify the column number to subset from sequencing_depth_bact and remove them 
+sequencing_depth_bact_s1 <- sequencing_depth_bact_s1[ , -c(46:89)]
+
+
+asvs_bact_s1<-sequencing_depth_bact_s1%>%
+  gather(sample, count, 2:ncol(.)) %>% 
+  filter(count > 0) %>%
+  group_by(sample) %>% 
+  mutate(relab = count/sum(count)) %>% 
+  filter(n() > 19) %>% 
+  ungroup()
+
+
+sequencing_depth_bact_s1 %>%
+  gather(sample, count, -1)%>%
+  group_by(seqid)%>%
+  #filter(count > 0) %>% 
+  ungroup() %>%
+  mutate(count = as.integer(count))%>%
+  # Add metadata
+ inner_join(samples_bact, by = 'sample')%>%
+  # Relative abundance, grouped first by sample name, and then next by rep(sampling replicate identifier)
+  group_by(sample) %>%
+  #group_by(site, zone)%>% #do at sample level first 
+  mutate(relab = count/sum(count)) %>% ungroup() -> sequencing_depth_seqtab_bact_s1
+
+
+# Read in ASV table for sampling 2
+sequencing_depth_bact_s2 <- read_tsv("AMD_Prevent_sampling_2_ASV_table.tsv",
+  col_types = cols(.default = col_double(), seqid = col_character()))
+
+# Identify the column number to subset from sequencing_depth_bact and remove them 
+sequencing_depth_bact_s2 <- sequencing_depth_bact_s2[ , -c(46:78)]
+
+
+asvs_bact_s2<-sequencing_depth_bact_s2%>%
+  gather(sample, count, 2:ncol(.)) %>% 
+  filter(count > 0) %>%
+  group_by(sample) %>% 
+  mutate(relab = count/sum(count)) %>% 
+  filter(n() > 19) %>% 
+  ungroup()
+
+
+sequencing_depth_bact_s2 %>%
+  gather(sample, count, -1)%>%
+  group_by(seqid)%>%
+  #filter(count > 0) %>% 
+  ungroup() %>%
+  mutate(count = as.integer(count))%>%
+  # Add metadata
+ inner_join(samples_bact, by = 'sample')%>%
+  # Relative abundance, grouped first by sample name, and then next by rep(sampling replicate identifier)
+  group_by(sample) %>%
+  #group_by(site, zone)%>% #do at sample level first 
+  mutate(relab = count/sum(count)) %>% ungroup() -> sequencing_depth_seqtab_bact_s2 
+```
+
+```{r combines the seqtabs for both sampling events}
+
+sequencing_depth_seqtab_bact_combined <- bind_rows(sequencing_depth_seqtab_bact_s1, sequencing_depth_seqtab_bact_s2)
+
+```
+
+
+```{r}
+seqtab_bact_combined <- sequencing_depth_seqtab_bact_combined
+```
+
+
+
+###looks at the top 20 family, sampling 1
+```{r, select top 20 most abundant family all}
+# Select the 20 most abundant family
+sequencing_depth_seqtab_bact_s1 %>%
+  inner_join(taxonomy, by = 'seqid')%>%
+  group_by(Family, sample)%>%
+  # Calculate the relative abundance of each family in each sample
+  summarise(relab = sum(relab))%>%
+  filter(relab > 0) %>%
+  # Calculate the mean relative abundance of each family over the samples
+  summarise(mean_relab = sum(relab))%>%
+  ungroup() %>%
+  # Filter out non-assigned family
+  filter(!is.na(Family))%>%
+  # Select the top 20
+  top_n(20, mean_relab) -> t20_family_bact_s1
+```
+##print the top20 family table
+```{r print top20 family table}
+t20_family_bact_s1%>%
+ arrange(desc(mean_relab))->AMD_Prevent_t20_family_order_decending_bact_s1
+
+pdf("Figures/AMD_Prevent_bact_family_top_20_relab_table_s1.pdf", height=8, width=8)
+title <- "Sampling 1, Overall, Top 20 Family, Relative Abundance"
+
+grid::grid.newpage()
+grid::grid.text(title,x = (.5), y = (0.9))
+grid.table(AMD_Prevent_t20_family_order_decending_bact_s1) 
+dev.off()
+```
+
+###looks at the top 20 family, sampling 2
+```{r, select top 20 most abundant family all}
+# Select the 20 most abundant family
+sequencing_depth_seqtab_bact_s2 %>%
+  inner_join(taxonomy, by = 'seqid') %>%
+  group_by(Family, sample) %>%
+  # Calculate the relative abundance of each family in each sample
+  summarise(relab = sum(relab)) %>%
+  filter(relab > 0) %>%
+  # Calculate the mean relative abundance of each family over the samples
+  summarise(mean_relab = sum(relab)) %>%
+  ungroup() %>%
+  # Filter out non-assigned family
+  filter(!is.na(Family)) %>%
+  # Select the top 20
+  top_n(20, mean_relab) -> t20_family_bact_s2
+```
+##print the top20 family table
+```{r print top20 family table}
+t20_family_bact_s2%>%
+ arrange(desc(mean_relab))->AMD_Prevent_t20_family_order_decending_bact_s2
+
+pdf("Figures/AMD_Prevent_bact_family_top_20_relab_table_s2.pdf", height=8, width=8)
+title <- "Sampling 2, Overall, Top 20 Family, Relative Abundance"
+
+grid::grid.newpage()
+grid::grid.text(title,x = (.5), y = (0.9))
+grid.table(AMD_Prevent_t20_family_order_decending_bact_s2) 
+dev.off()
+```
+
+#BY AREA 
+
+
+###looks at the top 20 family, sampling 1 by area 1
+```{r, select top 20 most abundant family all}
+# Select the 20 most abundant family
+sequencing_depth_seqtab_bact_s1 %>%
+  inner_join(taxonomy, by = 'seqid')%>%
+  subset(area == "1") %>%
+  group_by(Family, sample)%>%
+  # Calculate the relative abundance of each family in each sample
+  summarise(relab = sum(relab))%>%
+  filter(relab > 0) %>%
+  # Calculate the mean relative abundance of each family over the samples
+  summarise(mean_relab = sum(relab))%>%
+  ungroup() %>%
+  # Filter out non-assigned family
+  filter(!is.na(Family))%>%
+  # Select the top 20
+  top_n(20, mean_relab) -> t20_family_bact_s1_area_1
+```
+##print the top20 family table
+```{r print top20 family table}
+t20_family_bact_s1_area_1%>%
+ arrange(desc(mean_relab))->AMD_Prevent_t20_family_order_decending_bact_s1_area_1
+
+pdf("Figures/AMD_Prevent_bact_family_top_20_relab_table_s1_area_1.pdf", height=8, width=8)
+title <- "Sampling 1, Overall, Top 20 Family, Relative Abundance_old"
+
+grid::grid.newpage()
+grid::grid.text(title,x = (.5), y = (0.9))
+grid.table(AMD_Prevent_t20_family_order_decending_bact_s1_area_1) 
+dev.off()
+```
+
+###looks at the top 20 family, sampling 1 by area 2
+```{r, select top 20 most abundant family all}
+# Select the 20 most abundant family
+sequencing_depth_seqtab_bact_s1 %>%
+  inner_join(taxonomy, by = 'seqid')%>%
+  subset(area == "2") %>%
+  group_by(Family, sample)%>%
+  # Calculate the relative abundance of each family in each sample
+  summarise(relab = sum(relab))%>%
+  filter(relab > 0) %>%
+  # Calculate the mean relative abundance of each family over the samples
+  summarise(mean_relab = sum(relab))%>%
+  ungroup() %>%
+  # Filter out non-assigned family
+  filter(!is.na(Family))%>%
+  # Select the top 20
+  top_n(20, mean_relab) -> t20_family_bact_s1_area_2
+```
+##print the top20 family table
+```{r print top20 family table}
+t20_family_bact_s1_area_2%>%
+ arrange(desc(mean_relab))->AMD_Prevent_t20_family_order_decending_bact_s1_area_2
+
+pdf("Figures/AMD_Prevent_bact_family_top_20_relab_table_s1_area_2.pdf", height=8, width=8)
+title <- "Sampling 1, Overall, Top 20 Family, Relative Abundance_mid"
+
+grid::grid.newpage()
+grid::grid.text(title,x = (.5), y = (0.9))
+grid.table(AMD_Prevent_t20_family_order_decending_bact_s1_area_2) 
+dev.off()
+```
+
+###looks at the top 20 family, sampling 1 by area 3
+```{r, select top 20 most abundant family all}
+# Select the 20 most abundant family
+sequencing_depth_seqtab_bact_s1 %>%
+  inner_join(taxonomy, by = 'seqid')%>%
+  subset(area == "3") %>%
+  group_by(Family, sample)%>%
+  # Calculate the relative abundance of each family in each sample
+  summarise(relab = sum(relab))%>%
+  filter(relab > 0) %>%
+  # Calculate the mean relative abundance of each family over the samples
+  summarise(mean_relab = sum(relab))%>%
+  ungroup() %>%
+  # Filter out non-assigned family
+  filter(!is.na(Family))%>%
+  # Select the top 20
+  top_n(20, mean_relab) -> t20_family_bact_s1_area_3
+```
+##print the top20 family table
+```{r print top20 family table}
+t20_family_bact_s1_area_3%>%
+ arrange(desc(mean_relab))->AMD_Prevent_t20_family_order_decending_bact_s1_area_3
+
+pdf("Figures/AMD_Prevent_bact_family_top_20_relab_table_s1_area_3.pdf", height=8, width=8)
+title <- "Sampling 1, Overall, Top 20 Family, Relative Abundance_young"
+
+grid::grid.newpage()
+grid::grid.text(title,x = (.5), y = (0.9))
+grid.table(AMD_Prevent_t20_family_order_decending_bact_s1_area_3) 
+dev.off()
+```
+
+
+###looks at the top 20 family, sampling 2 by area 1
+```{r, select top 20 most abundant family all}
+# Select the 20 most abundant family
+sequencing_depth_seqtab_bact_s2 %>%
+  inner_join(taxonomy, by = 'seqid')%>%
+  subset(area == "1") %>%
+  group_by(Family, sample)%>%
+  # Calculate the relative abundance of each family in each sample
+  summarise(relab = sum(relab))%>%
+  filter(relab > 0) %>%
+  # Calculate the mean relative abundance of each family over the samples
+  summarise(mean_relab = sum(relab))%>%
+  ungroup() %>%
+  # Filter out non-assigned family
+  filter(!is.na(Family))%>%
+  # Select the top 20
+  top_n(20, mean_relab) -> t20_family_bact_s2_area_1
+```
+##print the top20 family table
+```{r print top20 family table}
+t20_family_bact_s2_area_1%>%
+ arrange(desc(mean_relab))->AMD_Prevent_t20_family_order_decending_bact_s2_area_1
+
+pdf("Figures/AMD_Prevent_bact_family_top_20_relab_table_s2_area_1.pdf", height=8, width=8)
+title <- "Sampling 2, Overall, Top 20 Family, Relative Abundance_old"
+
+grid::grid.newpage()
+grid::grid.text(title,x = (.5), y = (0.9))
+grid.table(AMD_Prevent_t20_family_order_decending_bact_s2_area_1) 
+dev.off()
+```
+
+###looks at the top 20 family, sampling 2 by area 2
+```{r, select top 20 most abundant family all}
+# Select the 20 most abundant family
+sequencing_depth_seqtab_bact_s2 %>%
+  inner_join(taxonomy, by = 'seqid')%>%
+  subset(area == "2") %>%
+  group_by(Family, sample)%>%
+  # Calculate the relative abundance of each family in each sample
+  summarise(relab = sum(relab))%>%
+  filter(relab > 0) %>%
+  # Calculate the mean relative abundance of each family over the samples
+  summarise(mean_relab = sum(relab))%>%
+  ungroup() %>%
+  # Filter out non-assigned family
+  filter(!is.na(Family))%>%
+  # Select the top 20
+  top_n(20, mean_relab) -> t20_family_bact_s2_area_2
+```
+##print the top20 family table
+```{r print top20 family table}
+t20_family_bact_s2_area_2%>%
+ arrange(desc(mean_relab))->AMD_Prevent_t20_family_order_decending_bact_s2_area_2
+
+pdf("Figures/AMD_Prevent_bact_family_top_20_relab_table_s2_area_2.pdf", height=8, width=8)
+title <- "Sampling 2, Overall, Top 20 Family, Relative Abundance_mid"
+
+grid::grid.newpage()
+grid::grid.text(title,x = (.5), y = (0.9))
+grid.table(AMD_Prevent_t20_family_order_decending_bact_s2_area_2) 
+dev.off()
+```
+
+###looks at the top 20 family, sampling 2 by area 3
+```{r, select top 20 most abundant family all}
+# Select the 20 most abundant family
+sequencing_depth_seqtab_bact_s2 %>%
+  inner_join(taxonomy, by = 'seqid')%>%
+  subset(area == "3") %>%
+  group_by(Family, sample)%>%
+  # Calculate the relative abundance of each family in each sample
+  summarise(relab = sum(relab))%>%
+  filter(relab > 0) %>%
+  # Calculate the mean relative abundance of each family over the samples
+  summarise(mean_relab = sum(relab))%>%
+  ungroup() %>%
+  # Filter out non-assigned family
+  filter(!is.na(Family))%>%
+  # Select the top 20
+  top_n(20, mean_relab) -> t20_family_bact_s2_area_3
+```
+##print the top20 family table
+```{r print top20 family table}
+t20_family_bact_s2_area_3%>%
+ arrange(desc(mean_relab))->AMD_Prevent_t20_family_order_decending_bact_s2_area_3
+
+pdf("Figures/AMD_Prevent_bact_family_top_20_relab_table_s2_area_3.pdf", height=8, width=8)
+title <- "Sampling 2, Overall, Top 20 Family, Relative Abundance_young"
+
+grid::grid.newpage()
+grid::grid.text(title,x = (.5), y = (0.9))
+grid.table(AMD_Prevent_t20_family_order_decending_bact_s2_area_3) 
+dev.off()
+```
+
+
+
+
+####genera stacked bars - bacteria 
+#sampling 1, facet_grid by area 1,2,3
+
+
+```{r assign-top10-genera-to-taxonomy-bacteria}
+# Start by finding the top 20 genera *on average* over the samples
+p_bact_s1 <- asvs_bact_s1 %>%
+  inner_join(taxonomy, by = 'seqid') %>%
+  group_by(Genus, sample) %>%
+  # Calculate the relative abundance of each genera in each sample
+  summarise(relab = sum(relab)) %>%
+  # Calculate the *mean* relative abundance of each genera over the samples
+  summarise(mean_relab = sum(relab)) %>%
+  ungroup() %>%
+  # Filter out non-assigned genera
+  filter(!is.na(Genus)) %>%
+  # Select the top 20
+  top_n(20, mean_relab)
+# Add this information to the taxonomy table as the column topgenera
+taxonomy_bact_s1 <- taxonomy_sampling_1 %>%
+  # Join in the top 10 table. *Important* with left join, otherwise you loose rows in the
+  # taxonomy table that do not appear in the top 11 table.
+  left_join(
+    p_bact_s1 %>% 
+      # Duplicate the genera column, with the old name and as "topgenera"
+      transmute(Genus, topgenus = Genus),
+    by = 'Genus'
+  ) %>%
+  # Set topgenus to 'Other' for those that were not among the top 11
+  replace_na(list('topgenus' = 'Other'))
+```
+
+```{r}
+asvs_bact_s1 %>%
+  left_join(taxonomy_bact_s1, by = 'seqid') %>%
+  group_by(sample, Genus) %>% summarise(relab = sum(relab)) %>% ungroup() %>%
+  spread(sample, relab, fill = 0) %>%
+  write_tsv('asvs_bacteria_genus_s1.tsv')
+```
+### merging triplicates
+```{r}
+# Group samples by the first part of their name (i.e., "Bact.1", "Bact.2", etc.)
+samples_bact_grouped <- samples_bact %>%
+  filter(!area %in% c("orange", "yellow"))%>%
+  mutate(common_name = gsub("(\\.[0-9]+)\\..*", "\\1", name)) %>%
+  group_by(common_name) %>%
+  mutate(common_name = gsub("\\.", "", common_name)) %>%
+  ungroup()
+```
+
+```{r plot-top-genus}
+asvs_bact_s1 %>%
+  inner_join(taxonomy_bact_s1, by = 'seqid') %>%
+  inner_join(samples_bact_grouped, by = "sample")%>%
+  group_by(topgenus, sample, name, common_name, area, Rock_age) %>% summarise(relab = sum(relab)/3) %>% ungroup() %>%
+  ggplot(aes(
+    x = fct_relevel(common_name, rev(c("Bact1" , "Bact2", "Bact3" , "Bact4" , "Bact5" , "Bact6" , "Bact7" , "Bact8" ,  "Bact10" , "Bact13" ,  "Bact14" , "Bact15" , "Bact16" , "Bact17"))), 
+    y = relab, 
+    fill = fct_relevel(topgenus, "Other" , after = Inf))) +
+  geom_col() +
+  scale_fill_manual(values = myColors) +
+  coord_flip() +
+  facet_grid(. ~ factor(Rock_age, levels = c("young", "mid", "old")), scales = "free_x", drop = TRUE)+
+  labs(title = "Top 20 Genus-bacteria_Grouped_triplicates_sampling_1")+
+  ylab("Relative Abundance")+
+  xlab("Site")+
+  theme(
+    legend.position = 'bottom', legend.title = element_blank()) +
+  guides(fill = guide_legend(reverse = TRUE))
+    
+```
+
+```{r}
+ggsave("figures/AMD_Prevent_StackedBar_Top_20_genus_bacteria_triplicates_s1.pdf", width = 18 , height = 13, units = "cm")
+```
+
+
+#sampling 2, facet_grid by area 1,2,3
+
+```{r assign-top10-genera-to-taxonomy-bacteria}
+# Start by finding the top 20 genera *on average* over the samples
+p_bact_s2 <- asvs_bact_s2 %>%
+  inner_join(taxonomy, by = 'seqid') %>%
+  group_by(Genus, sample) %>%
+  # Calculate the relative abundance of each genera in each sample
+  summarise(relab = sum(relab)) %>%
+  # Calculate the *mean* relative abundance of each genera over the samples
+  summarise(mean_relab = sum(relab)) %>%
+  ungroup() %>%
+  # Filter out non-assigned genera
+  filter(!is.na(Genus)) %>%
+  # Select the top 20
+  top_n(20, mean_relab)
+# Add this information to the taxonomy table as the column topgenera
+taxonomy_bact_s2 <- taxonomy_sampling_2 %>%
+  # Join in the top 10 table. *Important* with left join, otherwise you loose rows in the
+  # taxonomy table that do not appear in the top 11 table.
+  left_join(
+    p_bact_s2 %>% 
+      # Duplicate the genera column, with the old name and as "topgenera"
+      transmute(Genus, topgenus = Genus),
+    by = 'Genus'
+  ) %>%
+  # Set topgenus to 'Other' for those that were not among the top 11
+  replace_na(list('topgenus' = 'Other'))
+```
+
+```{r}
+asvs_bact_s2 %>%
+  left_join(taxonomy_bact_s2, by = 'seqid') %>%
+  group_by(sample, Genus) %>% summarise(relab = sum(relab)) %>% ungroup() %>%
+  spread(sample, relab, fill = 0) %>%
+  write_tsv('asvs_bacteria_genus_s2.tsv')
+```
+### merging triplicates
+```{r}
+# Group samples by the first part of their name (i.e., "Bact.1", "Bact.2", etc.)
+samples_bact_grouped <- samples_bact %>%
+  filter(!area %in% c("orange", "yellow"))%>%
+  mutate(common_name = gsub("(\\.[0-9]+)\\..*", "\\1", name)) %>%
+  group_by(common_name) %>%
+  mutate(common_name = gsub("\\.", "", common_name)) %>%
+  ungroup()
+```
+
+```{r plot-top-genus}
+asvs_bact_s2 %>%
+  inner_join(taxonomy_bact_s2, by = 'seqid') %>%
+  inner_join(samples_bact_grouped, by = "sample")%>%
+  group_by(topgenus, sample, name, common_name, area, Rock_age) %>% summarise(relab = sum(relab)/3) %>% ungroup() %>%
+  ggplot(aes(
+    x = fct_relevel(common_name, rev(c("Bact1" , "Bact2", "Bact3" , "Bact4" , "Bact5" , "Bact6" , "Bact7" , "Bact8" ,  "Bact10" , "Bact13" ,  "Bact14" , "Bact15" , "Bact16" , "Bact17"))), 
+    y = relab, 
+    fill = fct_relevel(topgenus, "Other" , after = Inf))) +
+  geom_col() +
+  scale_fill_manual(values = myColors) +
+  coord_flip() +
+  facet_grid(. ~ factor(Rock_age, levels = c("young", "mid", "old")), scales = "free_x", drop = TRUE)+
+  labs(title = "Top 20 Genus-bacteria_Grouped_triplicates_sampling_2")+
+  ylab("Relative Abundance")+
+  xlab("Site")+
+  theme(
+    legend.position = 'bottom', legend.title = element_blank()) +
+  guides(fill = guide_legend(reverse = TRUE))
+    
+```
+
+```{r}
+ggsave("figures/AMD_Prevent_StackedBar_Top_20_genus_bacteria_triplicates_s2.pdf" , width = 18 , height = 13, units = "cm")
+```
+
+
+
+
+
+##other taxonomic levels 
+
+
+
+#Family
+
+```{r assign-top10-family-to-taxonomy-bacteria}
+# Start by finding the top 20 family *on average* over the samples
+p_bact_s1 <- asvs_bact_s1 %>%
+  inner_join(taxonomy, by = 'seqid') %>%
+  group_by(Family, sample) %>%
+  # Calculate the relative abundance of each family in each sample
+  summarise(relab = sum(relab)) %>%
+  # Calculate the *mean* relative abundance of each family over the samples
+  summarise(mean_relab = sum(relab)) %>%
+  ungroup() %>%
+  # Filter out non-assigned family
+  filter(!is.na(Family)) %>%
+  # Select the top 20
+  top_n(20, mean_relab)
+# Add this information to the taxonomy table as the column topfamily
+taxonomy_bact_s1 <- taxonomy_sampling_1 %>%
+  # Join in the top 10 table. *Important* with left join, otherwise you loose rows in the
+  # taxonomy table that do not appear in the top 11 table.
+  left_join(
+    p_bact_s1 %>% 
+      # Duplicate the family column, with the old name and as "topfamily"
+      transmute(Family, topfamily = Family),
+    by = 'Family'
+  ) %>%
+  # Set topfamily to 'Other' for those that were not among the top 11
+  replace_na(list('topfamily' = 'Other'))
+```
+
+```{r}
+asvs_bact_s1 %>%
+  left_join(taxonomy_bact_s1, by = 'seqid') %>%
+  group_by(sample, Family) %>% summarise(relab = sum(relab)) %>% ungroup() %>%
+  spread(sample, relab, fill = 0) %>%
+  write_tsv('asvs_bacteria_family_s1.tsv')
+```
+### merging triplicates
+```{r}
+# Group samples by the first part of their name (i.e., "Bact.1", "Bact.2", etc.)
+samples_bact_grouped <- samples_bact %>%
+  filter(!area %in% c("orange", "yellow"))%>%
+  mutate(common_name = gsub("(\\.[0-9]+)\\..*", "\\1", name)) %>%
+  group_by(common_name) %>%
+  mutate(common_name = gsub("\\.", "", common_name)) %>%
+  ungroup()
+```
+
+```{r plot-top-family}
+asvs_bact_s1 %>%
+  inner_join(taxonomy_bact_s1, by = 'seqid') %>%
+  inner_join(samples_bact_grouped, by = "sample")%>%
+  group_by(topfamily, sample, name, common_name, area ,Rock_age) %>% summarise(relab = sum(relab)/3) %>% ungroup() %>%
+  ggplot(aes(
+    x = fct_relevel(common_name, rev(c("Bact1" , "Bact2", "Bact3" , "Bact4" , "Bact5" , "Bact6" , "Bact7" , "Bact8" ,  "Bact10" , "Bact13" ,  "Bact14" , "Bact15" , "Bact16" , "Bact17"))), 
+    y = relab, 
+    fill = fct_relevel(topfamily, "Other" , after = Inf))) +
+  geom_col() +
+  scale_fill_manual(values = myColors) +
+  coord_flip() +
+  facet_grid(. ~ factor(Rock_age, levels = c("young", "mid", "old")), scales = "free_x", drop = TRUE)+
+  labs(title = "Top 20 Family-bacteria_Grouped_triplicates_sampling_1")+
+  ylab("Relative Abundance")+
+  xlab("Site")+
+  theme(
+    legend.position = 'bottom', legend.title = element_blank()) +
+  guides(fill = guide_legend(reverse = TRUE))
+  
+```
+
+```{r}
+ggsave("figures/AMD_Prevent_StackedBar_Top_20_family_bacteria_triplicates_s1.pdf" , width = 18 , height = 13, units = "cm")
+```
+
+
+#sampling 2, facet_grid by area 1,2,3
+
+```{r assign-top10-family-to-taxonomy-bacteria}
+# Start by finding the top 20 family *on average* over the samples
+p_bact_s2 <- asvs_bact_s2 %>%
+  inner_join(taxonomy, by = 'seqid') %>%
+  group_by(Family, sample) %>%
+  # Calculate the relative abundance of each family in each sample
+  summarise(relab = sum(relab)) %>%
+  # Calculate the *mean* relative abundance of each family over the samples
+  summarise(mean_relab = sum(relab)) %>%
+  ungroup() %>%
+  # Filter out non-assigned family
+  filter(!is.na(Family)) %>%
+  # Select the top 20
+  top_n(20, mean_relab)
+# Add this information to the taxonomy table as the column topfamily
+taxonomy_bact_s2 <- taxonomy_sampling_2 %>%
+  # Join in the top 10 table. *Important* with left join, otherwise you loose rows in the
+  # taxonomy table that do not appear in the top 11 table.
+  left_join(
+    p_bact_s2 %>% 
+      # Duplicate the family column, with the old name and as "topfamily"
+      transmute(Family, topfamily = Family),
+    by = 'Family'
+  ) %>%
+  # Set topfamily to 'Other' for those that were not among the top 11
+  replace_na(list('topfamily' = 'Other'))
+```
+
+```{r}
+asvs_bact_s2 %>%
+  left_join(taxonomy_bact_s2, by = 'seqid') %>%
+  group_by(sample, Family) %>% summarise(relab = sum(relab)) %>% ungroup() %>%
+  spread(sample, relab, fill = 0) %>%
+  write_tsv('asvs_bacteria_family_s2.tsv')
+```
+### merging triplicates
+```{r}
+# Group samples by the first part of their name (i.e., "Bact.1", "Bact.2", etc.)
+samples_bact_grouped <- samples_bact %>%
+  filter(!area %in% c("orange", "yellow"))%>%
+  mutate(common_name = gsub("(\\.[0-9]+)\\..*", "\\1", name)) %>%
+  group_by(common_name) %>%
+  mutate(common_name = gsub("\\.", "", common_name)) %>%
+  ungroup()
+```
+
+```{r plot-top-family}
+asvs_bact_s2 %>%
+  inner_join(taxonomy_bact_s2, by = 'seqid') %>%
+  inner_join(samples_bact_grouped, by = "sample")%>%
+  group_by(topfamily, sample, name, common_name, area, Rock_age) %>% summarise(relab = sum(relab)/3) %>% ungroup() %>%
+  ggplot(aes(
+    x = fct_relevel(common_name, rev(c("Bact1" , "Bact2", "Bact3" , "Bact4" , "Bact5" , "Bact6" , "Bact7" , "Bact8" ,  "Bact10" , "Bact13" ,  "Bact14" , "Bact15" , "Bact16" , "Bact17"))), 
+    y = relab, 
+    fill = fct_relevel(topfamily, "Other" , after = Inf))) +
+  geom_col() +
+  scale_fill_manual(values = myColors) +
+  coord_flip() +
+  facet_grid(. ~ factor(Rock_age, levels = c("young", "mid", "old")), scales = "free_x", drop = TRUE)+
+  labs(title = "Top 20 Family-bacteria_Grouped_triplicates_sampling_2")+
+  ylab("Relative Abundance")+
+  xlab("Site")+
+  theme(
+    legend.position = 'bottom', legend.title = element_blank()) +
+  guides(fill = guide_legend(reverse = TRUE))
+   
+```
+
+```{r}
+ggsave("figures/AMD_Prevent_StackedBar_Top_20_family_bacteria_triplicates_s2.pdf" , width = 18 , height = 13, units = "cm")
+```
+
+
+
+
+
+
+
+
+#Order
+
+```{r assign-top10-order-to-taxonomy-bacteria}
+# Start by finding the top 20 order *on average* over the samples
+p_bact_s1 <- asvs_bact_s1 %>%
+  inner_join(taxonomy, by = 'seqid') %>%
+  group_by(Order, sample) %>%
+  # Calculate the relative abundance of each order in each sample
+  summarise(relab = sum(relab)) %>%
+  # Calculate the *mean* relative abundance of each order over the samples
+  summarise(mean_relab = sum(relab)) %>%
+  ungroup() %>%
+  # Filter out non-assigned order
+  filter(!is.na(Order)) %>%
+  # Select the top 20
+  top_n(20, mean_relab)
+# Add this information to the taxonomy table as the column toporder
+taxonomy_bact_s1 <- taxonomy_sampling_1 %>%
+  # Join in the top 10 table. *Important* with left join, otherwise you loose rows in the
+  # taxonomy table that do not appear in the top 11 table.
+  left_join(
+    p_bact_s1 %>% 
+      # Duplicate the order column, with the old name and as "toporder"
+      transmute(Order, toporder = Order),
+    by = 'Order'
+  ) %>%
+  # Set toporder to 'Other' for those that were not among the top 11
+  replace_na(list('toporder' = 'Other'))
+```
+
+```{r}
+asvs_bact_s1 %>%
+  left_join(taxonomy_bact_s1, by = 'seqid') %>%
+  group_by(sample, Order) %>% summarise(relab = sum(relab)) %>% ungroup() %>%
+  spread(sample, relab, fill = 0) %>%
+  write_tsv('asvs_bacteria_order_s1.tsv')
+```
+### merging triplicates
+```{r}
+# Group samples by the first part of their name (i.e., "Bact.1", "Bact.2", etc.)
+samples_bact_grouped <- samples_bact %>%
+  filter(!area %in% c("orange", "yellow"))%>%
+  mutate(common_name = gsub("(\\.[0-9]+)\\..*", "\\1", name)) %>%
+  group_by(common_name) %>%
+  mutate(common_name = gsub("\\.", "", common_name)) %>%
+  ungroup()
+```
+
+```{r plot-top-order}
+asvs_bact_s1 %>%
+  inner_join(taxonomy_bact_s1, by = 'seqid') %>%
+  inner_join(samples_bact_grouped, by = "sample")%>%
+  group_by(toporder, sample, name, common_name, area, Rock_age) %>% summarise(relab = sum(relab)/3) %>% ungroup() %>%
+  ggplot(aes(
+    x = fct_relevel(common_name, rev(c("Bact1" , "Bact2", "Bact3" , "Bact4" , "Bact5" , "Bact6" , "Bact7" , "Bact8" ,  "Bact10" , "Bact13" ,  "Bact14" , "Bact15" , "Bact16" , "Bact17"))), 
+    y = relab, 
+    fill = fct_relevel(toporder, "Other" , after = Inf))) +
+  geom_col() +
+  scale_fill_manual(values = myColors) +
+  coord_flip() +
+  facet_grid(. ~ factor(Rock_age, levels = c("young", "mid", "old")), scales = "free_x", drop = TRUE)+
+  labs(title = "Top 20 Order-bacteria_Grouped_triplicates_sampling_1")+
+  ylab("Relative Abundance")+
+  xlab("Site")+
+  theme(
+    legend.position = 'bottom', legend.title = element_blank()) +
+  guides(fill = guide_legend(reverse = TRUE))
+```
+
+```{r}
+ggsave("figures/AMD_Prevent_StackedBar_Top_20_order_bacteria_triplicates_s1.pdf" , width = 18 , height = 13, units = "cm")
+```
+
+
+#sampling 2, facet_grid by area 1,2,3
+
+```{r assign-top10-order-to-taxonomy-bacteria}
+# Start by finding the top 20 order *on average* over the samples
+p_bact_s2 <- asvs_bact_s2 %>%
+  inner_join(taxonomy, by = 'seqid') %>%
+  group_by(Order, sample) %>%
+  # Calculate the relative abundance of each order in each sample
+  summarise(relab = sum(relab)) %>%
+  # Calculate the *mean* relative abundance of each order over the samples
+  summarise(mean_relab = sum(relab)) %>%
+  ungroup() %>%
+  # Filter out non-assigned order
+  filter(!is.na(Order)) %>%
+  # Select the top 20
+  top_n(20, mean_relab)
+# Add this information to the taxonomy table as the column toporder
+taxonomy_bact_s2 <- taxonomy_sampling_2 %>%
+  # Join in the top 10 table. *Important* with left join, otherwise you loose rows in the
+  # taxonomy table that do not appear in the top 11 table.
+  left_join(
+    p_bact_s2 %>% 
+      # Duplicate the order column, with the old name and as "toporder"
+      transmute(Order, toporder = Order),
+    by = 'Order'
+  ) %>%
+  # Set toporder to 'Other' for those that were not among the top 11
+  replace_na(list('toporder' = 'Other'))
+```
+
+```{r}
+asvs_bact_s2 %>%
+  left_join(taxonomy_bact_s2, by = 'seqid') %>%
+  group_by(sample, Order) %>% summarise(relab = sum(relab)) %>% ungroup() %>%
+  spread(sample, relab, fill = 0) %>%
+  write_tsv('asvs_bacteria_order_s2.tsv')
+```
+### merging triplicates
+```{r}
+# Group samples by the first part of their name (i.e., "Bact.1", "Bact.2", etc.)
+samples_bact_grouped <- samples_bact %>%
+  filter(!area %in% c("orange", "yellow"))%>%
+  mutate(common_name = gsub("(\\.[0-9]+)\\..*", "\\1", name)) %>%
+  group_by(common_name) %>%
+  mutate(common_name = gsub("\\.", "", common_name)) %>%
+  ungroup()
+```
+
+```{r plot-top-order}
+asvs_bact_s2 %>%
+  inner_join(taxonomy_bact_s2, by = 'seqid') %>%
+  inner_join(samples_bact_grouped, by = "sample")%>%
+  group_by(toporder, sample, name, common_name, area, Rock_age) %>% summarise(relab = sum(relab)/3) %>% ungroup() %>%
+  ggplot(aes(
+    x = fct_relevel(common_name, rev(c("Bact1" , "Bact2", "Bact3" , "Bact4" , "Bact5" , "Bact6" , "Bact7" , "Bact8" ,  "Bact10" , "Bact13" ,  "Bact14" , "Bact15" , "Bact16" , "Bact17"))), 
+    y = relab, 
+    fill = fct_relevel(toporder, "Other" , after = Inf))) +
+  geom_col() +
+  scale_fill_manual(values = myColors) +
+  coord_flip() +
+  facet_grid(. ~ factor(Rock_age, levels = c("young", "mid", "old")), scales = "free_x", drop = TRUE)+
+  labs(title = "Top 20 Order-bacteria_Grouped_triplicates_sampling_2")+
+  ylab("Relative Abundance")+
+  xlab("Site")+
+  theme(
+    legend.position = 'bottom', legend.title = element_blank()) +
+  guides(fill = guide_legend(reverse = TRUE))
+```
+
+```{r}
+ggsave("figures/AMD_Prevent_StackedBar_Top_20_order_bacteria_triplicates_s2.pdf" , width = 18 , height = 13, units = "cm")
+```
+
+
+
+
+
+
+#Class 
+
+```{r assign-top10-class-to-taxonomy-bacteria}
+# Start by finding the top 20 class *on average* over the samples
+p_bact_s1 <- asvs_bact_s1 %>%
+  inner_join(taxonomy, by = 'seqid') %>%
+  group_by(Class, sample) %>%
+  # Calculate the relative abundance of each class in each sample
+  summarise(relab = sum(relab)) %>%
+  # Calculate the *mean* relative abundance of each class over the samples
+  summarise(mean_relab = sum(relab)) %>%
+  ungroup() %>%
+  # Filter out non-assigned class
+  filter(!is.na(Class)) %>%
+  # Select the top 20
+  top_n(20, mean_relab)
+# Add this information to the taxonomy table as the column topclass
+taxonomy_bact_s1 <- taxonomy_sampling_1 %>%
+  # Join in the top 10 table. *Important* with left join, otherwise you loose rows in the
+  # taxonomy table that do not appear in the top 11 table.
+  left_join(
+    p_bact_s1 %>% 
+      # Duplicate the class column, with the old name and as "topclass"
+      transmute(Class, topclass = Class),
+    by = 'Class'
+  ) %>%
+  # Set topclass to 'Other' for those that were not among the top 11
+  replace_na(list('topclass' = 'Other'))
+```
+
+```{r}
+asvs_bact_s1 %>%
+  left_join(taxonomy_bact_s1, by = 'seqid') %>%
+  group_by(sample, Class) %>% summarise(relab = sum(relab)) %>% ungroup() %>%
+  spread(sample, relab, fill = 0) %>%
+  write_tsv('asvs_bacteria_class_s1.tsv')
+```
+### merging triplicates
+```{r}
+# Group samples by the first part of their name (i.e., "Bact.1", "Bact.2", etc.)
+samples_bact_grouped <- samples_bact %>%
+  filter(!area %in% c("orange", "yellow"))%>%
+  mutate(common_name = gsub("(\\.[0-9]+)\\..*", "\\1", name)) %>%
+  group_by(common_name) %>%
+  mutate(common_name = gsub("\\.", "", common_name)) %>%
+  ungroup()
+```
+
+```{r plot-top-class}
+asvs_bact_s1 %>%
+  inner_join(taxonomy_bact_s1, by = 'seqid') %>%
+  inner_join(samples_bact_grouped, by = "sample")%>%
+  group_by(topclass, sample, name, common_name, area, Rock_age) %>% summarise(relab = sum(relab)/3) %>% ungroup() %>%
+  ggplot(aes(
+    x = fct_relevel(common_name, rev(c("Bact1" , "Bact2", "Bact3" , "Bact4" , "Bact5" , "Bact6" , "Bact7" , "Bact8" ,  "Bact10" , "Bact13" ,  "Bact14" , "Bact15" , "Bact16" , "Bact17"))), 
+    y = relab, 
+    fill = fct_relevel(topclass, "Other" , after = Inf))) +
+  geom_col() +
+  scale_fill_manual(values = myColors) +
+  coord_flip() +
+  facet_grid(. ~ factor(Rock_age, levels = c("young", "mid", "old")), scales = "free_x", drop = TRUE)+
+  labs(title = "Top 20 Class-bacteria_Grouped_triplicates_sampling_1")+
+  ylab("Relative Abundance")+
+  xlab("Site")+
+  theme(
+    legend.position = 'bottom', legend.title = element_blank()) +
+  guides(fill = guide_legend(reverse = TRUE))
+```
+
+```{r}
+ggsave("figures/AMD_Prevent_StackedBar_Top_20_class_bacteria_triplicates_s1.pdf" , width = 18 , height = 13, units = "cm")
+```
+
+
+#sampling 2, facet_grid by area 1,2,3
+
+```{r assign-top10-class-to-taxonomy-bacteria}
+# Start by finding the top 20 class *on average* over the samples
+p_bact_s2 <- asvs_bact_s2 %>%
+  inner_join(taxonomy, by = 'seqid') %>%
+  group_by(Class, sample) %>%
+  # Calculate the relative abundance of each class in each sample
+  summarise(relab = sum(relab)) %>%
+  # Calculate the *mean* relative abundance of each class over the samples
+  summarise(mean_relab = sum(relab)) %>%
+  ungroup() %>%
+  # Filter out non-assigned class
+  filter(!is.na(Class)) %>%
+  # Select the top 20
+  top_n(20, mean_relab)
+# Add this information to the taxonomy table as the column topclass
+taxonomy_bact_s2 <- taxonomy_sampling_2 %>%
+  # Join in the top 10 table. *Important* with left join, otherwise you loose rows in the
+  # taxonomy table that do not appear in the top 11 table.
+  left_join(
+    p_bact_s2 %>% 
+      # Duplicate the class column, with the old name and as "topclass"
+      transmute(Class, topclass = Class),
+    by = 'Class'
+  ) %>%
+  # Set topclass to 'Other' for those that were not among the top 11
+  replace_na(list('topclass' = 'Other'))
+```
+
+```{r}
+asvs_bact_s2 %>%
+  left_join(taxonomy_bact_s2, by = 'seqid') %>%
+  group_by(sample, Class) %>% summarise(relab = sum(relab)) %>% ungroup() %>%
+  spread(sample, relab, fill = 0) %>%
+  write_tsv('asvs_bacteria_class_s2.tsv')
+```
+### merging triplicates
+```{r}
+# Group samples by the first part of their name (i.e., "Bact.1", "Bact.2", etc.)
+samples_bact_grouped <- samples_bact %>%
+  filter(!area %in% c("orange", "yellow"))%>%
+  mutate(common_name = gsub("(\\.[0-9]+)\\..*", "\\1", name)) %>%
+  group_by(common_name) %>%
+  mutate(common_name = gsub("\\.", "", common_name)) %>%
+  ungroup()
+```
+
+```{r plot-top-class}
+asvs_bact_s2 %>%
+  inner_join(taxonomy_bact_s2, by = 'seqid') %>%
+  inner_join(samples_bact_grouped, by = "sample")%>%
+  group_by(topclass, sample, name, common_name, area ,Rock_age) %>% summarise(relab = sum(relab)/3) %>% ungroup() %>%
+  ggplot(aes(
+    x = fct_relevel(common_name, rev(c("Bact1" , "Bact2", "Bact3" , "Bact4" , "Bact5" , "Bact6" , "Bact7" , "Bact8" ,  "Bact10" , "Bact13" ,  "Bact14" , "Bact15" , "Bact16" , "Bact17"))), 
+    y = relab, 
+    fill = fct_relevel(topclass, "Other" , after = Inf))) +
+  geom_col() +
+  scale_fill_manual(values = myColors) +
+  coord_flip() +
+  facet_grid(. ~ factor(Rock_age, levels = c("young", "mid", "old")), scales = "free_x", drop = TRUE)+
+  labs(title = "Top 20 Class-bacteria_Grouped_triplicates_sampling_2")+
+  ylab("Relative Abundance")+
+  xlab("Site")+
+  theme(
+    legend.position = 'bottom', legend.title = element_blank()) +
+  guides(fill = guide_legend(reverse = TRUE))
+```
+
+```{r}
+ggsave("figures/AMD_Prevent_StackedBar_Top_20_class_bacteria_triplicates_s2.pdf" , width = 18 , height = 13, units = "cm")
+```
+
+
+
+
+
+
+
+#Phylum, 
+
+
+```{r assign-top10-phyla-to-taxonomy-bacteria}
+# Start by finding the top 20 phyla *on average* over the samples
+p_bact_s1 <- asvs_bact_s1 %>%
+  inner_join(taxonomy, by = 'seqid') %>%
+  group_by(Phylum, sample) %>%
+  # Calculate the relative abundance of each phyla in each sample
+  summarise(relab = sum(relab)) %>%
+  # Calculate the *mean* relative abundance of each phyla over the samples
+  summarise(mean_relab = sum(relab)) %>%
+  ungroup() %>%
+  # Filter out non-assigned phyla
+  filter(!is.na(Phylum)) %>%
+  # Select the top 20
+  top_n(20, mean_relab)
+# Add this information to the taxonomy table as the column topphyla
+taxonomy_bact_s1 <- taxonomy_sampling_1 %>%
+  # Join in the top 10 table. *Important* with left join, otherwise you loose rows in the
+  # taxonomy table that do not appear in the top 11 table.
+  left_join(
+    p_bact_s1 %>% 
+      # Duplicate the phyla column, with the old name and as "topphyla"
+      transmute(Phylum, topphylum = Phylum),
+    by = 'Phylum'
+  ) %>%
+  # Set topphylum to 'Other' for those that were not among the top 11
+  replace_na(list('topphylum' = 'Other'))
+```
+
+```{r}
+asvs_bact_s1 %>%
+  left_join(taxonomy_bact_s1, by = 'seqid') %>%
+  group_by(sample, Phylum) %>% summarise(relab = sum(relab)) %>% ungroup() %>%
+  spread(sample, relab, fill = 0) %>%
+  write_tsv('asvs_bacteria_phylum_s1.tsv')
+```
+### merging triplicates
+```{r}
+# Group samples by the first part of their name (i.e., "Bact.1", "Bact.2", etc.)
+samples_bact_grouped <- samples_bact %>%
+  filter(!area %in% c("orange", "yellow"))%>%
+  mutate(common_name = gsub("(\\.[0-9]+)\\..*", "\\1", name)) %>%
+  group_by(common_name) %>%
+  mutate(common_name = gsub("\\.", "", common_name)) %>%
+  ungroup()
+```
+
+```{r plot-top-phylum}
+asvs_bact_s1 %>%
+  inner_join(taxonomy_bact_s1, by = 'seqid') %>%
+  inner_join(samples_bact_grouped, by = "sample")%>%
+  group_by(topphylum, sample, name, common_name, area ,Rock_age) %>% summarise(relab = sum(relab)/3) %>% ungroup() %>%
+  ggplot(aes(
+    x = fct_relevel(common_name, rev(c("Bact1" , "Bact2", "Bact3" , "Bact4" , "Bact5" , "Bact6" , "Bact7" , "Bact8" ,  "Bact10" , "Bact13" ,  "Bact14" , "Bact15" , "Bact16" , "Bact17"))), 
+    y = relab, 
+    fill = fct_relevel(topphylum, "Other" , after = Inf))) +
+  geom_col() +
+  scale_fill_manual(values = myColors) +
+  coord_flip() +
+  facet_grid(. ~ factor(Rock_age, levels = c("young", "mid", "old")), scales = "free_x", drop = TRUE)+
+  labs(title = "Top 20 Phylum-bacteria_Grouped_triplicates_sampling_1")+
+  ylab("Relative Abundance")+
+  xlab("Site")+
+  theme(
+    legend.position = 'bottom', legend.title = element_blank()) +
+  guides(fill = guide_legend(reverse = TRUE))
+```
+
+```{r}
+ggsave("figures/AMD_Prevent_StackedBar_Top_20_phylum_bacteria_triplicates_s1.pdf" , width = 18 , height = 13, units = "cm")
+```
+
+
+#sampling 2, facet_grid by area 1,2,3
+
+```{r assign-top10-phyla-to-taxonomy-bacteria}
+# Start by finding the top 20 phyla *on average* over the samples
+p_bact_s2 <- asvs_bact_s2 %>%
+  inner_join(taxonomy, by = 'seqid') %>%
+  group_by(Phylum, sample) %>%
+  # Calculate the relative abundance of each phyla in each sample
+  summarise(relab = sum(relab)) %>%
+  # Calculate the *mean* relative abundance of each phyla over the samples
+  summarise(mean_relab = sum(relab)) %>%
+  ungroup() %>%
+  # Filter out non-assigned phyla
+  filter(!is.na(Phylum)) %>%
+  # Select the top 20
+  top_n(20, mean_relab)
+# Add this information to the taxonomy table as the column topphyla
+taxonomy_bact_s2 <- taxonomy_sampling_2 %>%
+  # Join in the top 10 table. *Important* with left join, otherwise you loose rows in the
+  # taxonomy table that do not appear in the top 11 table.
+  left_join(
+    p_bact_s2 %>% 
+      # Duplicate the phyla column, with the old name and as "topphyla"
+      transmute(Phylum, topphylum = Phylum),
+    by = 'Phylum'
+  ) %>%
+  # Set topphylum to 'Other' for those that were not among the top 11
+  replace_na(list('topphylum' = 'Other'))
+```
+
+```{r}
+asvs_bact_s2 %>%
+  left_join(taxonomy_bact_s2, by = 'seqid') %>%
+  group_by(sample, Phylum) %>% summarise(relab = sum(relab)) %>% ungroup() %>%
+  spread(sample, relab, fill = 0) %>%
+  write_tsv('asvs_bacteria_phylum_s1.tsv')
+```
+### merging triplicates
+```{r}
+# Group samples by the first part of their name (i.e., "Bact.1", "Bact.2", etc.)
+samples_bact_grouped <- samples_bact %>%
+  filter(!area %in% c("orange", "yellow"))%>%
+  mutate(common_name = gsub("(\\.[0-9]+)\\..*", "\\1", name)) %>%
+  group_by(common_name) %>%
+  mutate(common_name = gsub("\\.", "", common_name)) %>%
+  ungroup()
+```
+
+```{r plot-top-phylum}
+asvs_bact_s2 %>%
+  inner_join(taxonomy_bact_s2, by = 'seqid') %>%
+  inner_join(samples_bact_grouped, by = "sample")%>%
+  group_by(topphylum, sample, name, common_name, area, Rock_age) %>% summarise(relab = sum(relab)/3) %>% ungroup() %>%
+  ggplot(aes(
+    x = fct_relevel(common_name, rev(c("Bact1" , "Bact2", "Bact3" , "Bact4" , "Bact5" , "Bact6" , "Bact7" , "Bact8" ,  "Bact10" , "Bact13" ,  "Bact14" , "Bact15" , "Bact16" , "Bact17"))), 
+    y = relab, 
+    fill = fct_relevel(topphylum, "Other" , after = Inf))) +
+  geom_col() +
+  scale_fill_manual(values = myColors) +
+  coord_flip() +
+  facet_grid(. ~ factor(Rock_age, levels = c("young", "mid", "old")), scales = "free_x", drop = TRUE)+
+  labs(title = "Top 20 Phylum-bacteria_Grouped_triplicates_sampling_2")+
+  ylab("Relative Abundance")+
+  xlab("Site")+
+  theme(
+    legend.position = 'bottom', legend.title = element_blank()) +
+  guides(fill = guide_legend(reverse = TRUE))
+```
+
+```{r}
+ggsave("figures/AMD_Prevent_StackedBar_Top_20_phylum_bacteria_triplicates_s2.pdf" , width = 18 , height = 13, units = "cm")
+```
+
+
+
+
+
+# Kingdom, 
+
+
+```{r assign-top10-kingdom-to-taxonomy-bacteria}
+# Start by finding the top 20 kingdom *on average* over the samples
+p_bact_s1 <- asvs_bact_s1 %>%
+  inner_join(taxonomy, by = 'seqid') %>%
+  group_by(Kingdom, sample) %>%
+  # Calculate the relative abundance of each kingdom in each sample
+  summarise(relab = sum(relab)) %>%
+  # Calculate the *mean* relative abundance of each kingdom over the samples
+  summarise(mean_relab = sum(relab)) %>%
+  ungroup() %>%
+  # Filter out non-assigned kingdom
+  filter(!is.na(Kingdom)) %>%
+  # Select the top 20
+  top_n(20, mean_relab)
+# Add this information to the taxonomy table as the column topkingdom
+taxonomy_bact_s1 <- taxonomy_sampling_1 %>%
+  # Join in the top 10 table. *Important* with left join, otherwise you loose rows in the
+  # taxonomy table that do not appear in the top 11 table.
+  left_join(
+    p_bact_s1 %>% 
+      # Duplicate the kingdom column, with the old name and as "topkingdom"
+      transmute(Kingdom, topkingdom = Kingdom),
+    by = 'Kingdom'
+  ) %>%
+  # Set topkingdom to 'Other' for those that were not among the top 11
+  replace_na(list('topkingdom' = 'Other'))
+```
+
+```{r}
+asvs_bact_s1 %>%
+  left_join(taxonomy_bact_s1, by = 'seqid') %>%
+  group_by(sample, Kingdom) %>% summarise(relab = sum(relab)) %>% ungroup() %>%
+  spread(sample, relab, fill = 0) %>%
+  write_tsv('asvs_bacteria_kingdom_s1.tsv')
+```
+### merging triplicates
+```{r}
+# Group samples by the first part of their name (i.e., "Bact.1", "Bact.2", etc.)
+samples_bact_grouped <- samples_bact %>%
+  filter(!area %in% c("orange", "yellow"))%>%
+  mutate(common_name = gsub("(\\.[0-9]+)\\..*", "\\1", name)) %>%
+  group_by(common_name) %>%
+  mutate(common_name = gsub("\\.", "", common_name)) %>%
+  ungroup()
+```
+
+```{r plot-top-kingdom}
+asvs_bact_s1 %>%
+  inner_join(taxonomy_bact_s1, by = 'seqid') %>%
+  inner_join(samples_bact_grouped, by = "sample")%>%
+  group_by(topkingdom, sample, name, common_name, area, Rock_age) %>% summarise(relab = sum(relab)/3) %>% ungroup() %>%
+  ggplot(aes(
+    x = fct_relevel(common_name, rev(c("Bact1" , "Bact2", "Bact3" , "Bact4" , "Bact5" , "Bact6" , "Bact7" , "Bact8" ,  "Bact10" , "Bact13" ,  "Bact14" , "Bact15" , "Bact16" , "Bact17"))), 
+    y = relab, 
+    fill = fct_relevel(topkingdom, "Other" , after = Inf))) +
+  geom_col() +
+  scale_fill_manual(values = myColors) +
+  coord_flip() +
+  facet_grid(. ~ factor(Rock_age, levels = c("young", "mid", "old")), scales = "free_x", drop = TRUE)+
+  labs(title = "Top 20 Kingdom-bacteria_Grouped_triplicates_sampling_1")+
+  ylab("Relative Abundance")+
+  xlab("Site")+
+  theme(
+    legend.position = 'bottom', legend.title = element_blank()) +
+  guides(fill = guide_legend(reverse = TRUE))
+```
+
+```{r}
+ggsave("figures/AMD_Prevent_StackedBar_Top_20_kingdom_bacteria_triplicates_s1.pdf" , width = 18 , height = 13, units = "cm")
+```
+
+
+#sampling 2, facet_grid by area 1,2,3
+
+```{r assign-top10-kingdom-to-taxonomy-bacteria}
+# Start by finding the top 20 kingdom *on average* over the samples
+p_bact_s2 <- asvs_bact_s2 %>%
+  inner_join(taxonomy, by = 'seqid') %>%
+  group_by(Kingdom, sample) %>%
+  # Calculate the relative abundance of each kingdom in each sample
+  summarise(relab = sum(relab)) %>%
+  # Calculate the *mean* relative abundance of each kingdom over the samples
+  summarise(mean_relab = sum(relab)) %>%
+  ungroup() %>%
+  # Filter out non-assigned kingdom
+  filter(!is.na(Kingdom)) %>%
+  # Select the top 20
+  top_n(20, mean_relab)
+# Add this information to the taxonomy table as the column topkingdom
+taxonomy_bact_s2 <- taxonomy_sampling_2 %>%
+  # Join in the top 10 table. *Important* with left join, otherwise you loose rows in the
+  # taxonomy table that do not appear in the top 11 table.
+  left_join(
+    p_bact_s2 %>% 
+      # Duplicate the kingdom column, with the old name and as "topkingdom"
+      transmute(Kingdom, topkingdom = Kingdom),
+    by = 'Kingdom'
+  ) %>%
+  # Set topkingdom to 'Other' for those that were not among the top 11
+  replace_na(list('topkingdom' = 'Other'))
+```
+
+```{r}
+asvs_bact_s2 %>%
+  left_join(taxonomy_bact_s2, by = 'seqid') %>%
+  group_by(sample, Kingdom) %>% summarise(relab = sum(relab)) %>% ungroup() %>%
+  spread(sample, relab, fill = 0) %>%
+  write_tsv('asvs_bacteria_kingdom_s1.tsv')
+```
+### merging triplicates
+```{r}
+# Group samples by the first part of their name (i.e., "Bact.1", "Bact.2", etc.)
+samples_bact_grouped <- samples_bact %>%
+  filter(!area %in% c("orange", "yellow"))%>%
+  mutate(common_name = gsub("(\\.[0-9]+)\\..*", "\\1", name)) %>%
+  group_by(common_name) %>%
+  mutate(common_name = gsub("\\.", "", common_name)) %>%
+  ungroup()
+```
+
+```{r plot-top-kingdom}
+asvs_bact_s2 %>%
+  inner_join(taxonomy_bact_s2, by = 'seqid') %>%
+  inner_join(samples_bact_grouped, by = "sample")%>%
+  group_by(topkingdom, sample, name, common_name, area, Rock_age) %>% summarise(relab = sum(relab)/3) %>% ungroup() %>%
+  ggplot(aes(
+    x = fct_relevel(common_name, rev(c("Bact1" , "Bact2", "Bact3" , "Bact4" , "Bact5" , "Bact6" , "Bact7" , "Bact8" ,  "Bact10" , "Bact13" ,  "Bact14" , "Bact15" , "Bact16" , "Bact17"))), 
+    y = relab, 
+    fill = fct_relevel(topkingdom, "Other" , after = Inf))) +
+  geom_col() +
+  scale_fill_manual(values = myColors) +
+  coord_flip() +
+  facet_grid(. ~ factor(Rock_age, levels = c("young", "mid", "old")), scales = "free_x", drop = TRUE)+
+  labs(title = "Top 20 Kingdom-bacteria_Grouped_triplicates_sampling_2")+
+  ylab("Relative Abundance")+
+  xlab("Site")+
+  theme(
+    legend.position = 'bottom', legend.title = element_blank()) +
+  guides(fill = guide_legend(reverse = TRUE))
+```
+
+```{r}
+ggsave("figures/AMD_Prevent_StackedBar_Top_20_kingdom_bacteria_triplicates_s2.pdf" , width = 18 , height = 13, units = "cm")
+```
+
+
+
+
+
+#Domain, 
+
+```{r assign-top10-genera-to-taxonomy-bacteria}
+# Start by finding the top 20 genera *on average* over the samples
+p_bact_s1 <- asvs_bact_s1 %>%
+  inner_join(taxonomy, by = 'seqid') %>%
+  group_by(Domain, sample) %>%
+  # Calculate the relative abundance of each genera in each sample
+  summarise(relab = sum(relab)) %>%
+  # Calculate the *mean* relative abundance of each genera over the samples
+  summarise(mean_relab = sum(relab)) %>%
+  ungroup() %>%
+  # Filter out non-assigned genera
+  filter(!is.na(Domain)) %>%
+  # Select the top 20
+  top_n(20, mean_relab)
+# Add this information to the taxonomy table as the column topgenera
+taxonomy_bact_s1 <- taxonomy_sampling_1 %>%
+  # Join in the top 10 table. *Important* with left join, otherwise you loose rows in the
+  # taxonomy table that do not appear in the top 11 table.
+  left_join(
+    p_bact_s1 %>% 
+      # Duplicate the genera column, with the old name and as "topgenera"
+      transmute(Domain, topdomain = Domain),
+    by = 'Domain'
+  ) %>%
+  # Set topdomain to 'Other' for those that were not among the top 11
+  replace_na(list('topdomain' = 'Other'))
+```
+
+```{r}
+asvs_bact_s1 %>%
+  left_join(taxonomy_bact_s1, by = 'seqid') %>%
+  group_by(sample, Domain) %>% summarise(relab = sum(relab)) %>% ungroup() %>%
+  spread(sample, relab, fill = 0) %>%
+  write_tsv('asvs_bacteria_domain_s1.tsv')
+```
+### merging triplicates
+```{r}
+# Group samples by the first part of their name (i.e., "Bact.1", "Bact.2", etc.)
+samples_bact_grouped <- samples_bact %>%
+  filter(!area %in% c("orange", "yellow"))%>%
+  mutate(common_name = gsub("(\\.[0-9]+)\\..*", "\\1", name)) %>%
+  group_by(common_name) %>%
+  mutate(common_name = gsub("\\.", "", common_name)) %>%
+  ungroup()
+```
+
+```{r plot-top-domain}
+asvs_bact_s1 %>%
+  inner_join(taxonomy_bact_s1, by = 'seqid') %>%
+  inner_join(samples_bact_grouped, by = "sample")%>%
+  group_by(topdomain, sample, name, common_name, area, Rock_age) %>% summarise(relab = sum(relab)/3) %>% ungroup() %>%
+  ggplot(aes(
+    x = fct_relevel(common_name, rev(c("Bact1" , "Bact2", "Bact3" , "Bact4" , "Bact5" , "Bact6" , "Bact7" , "Bact8" ,  "Bact10" , "Bact13" ,  "Bact14" , "Bact15" , "Bact16" , "Bact17"))), 
+    y = relab, 
+    fill = fct_relevel(topdomain, "Other" , after = Inf))) +
+  geom_col() +
+  scale_fill_manual(values = myColors) +
+  coord_flip() +
+  facet_grid(. ~ factor(Rock_age, levels = c("young", "mid", "old")), scales = "free_x", drop = TRUE)+
+  labs(title = "Top 20 Domain-bacteria_Grouped_triplicates_sampling_1")+
+  ylab("Relative Abundance")+
+  xlab("Site")+
+  theme(
+    legend.position = 'bottom', legend.title = element_blank()) +
+  guides(fill = guide_legend(reverse = TRUE))
+```
+
+```{r}
+ggsave("figures/AMD_Prevent_StackedBar_Top_20_domain_bacteria_triplicates_s1.pdf" , width = 18 , height = 13, units = "cm")
+```
+
+
+#sampling 2, facet_grid by area 1,2,3
+
+```{r assign-top10-genera-to-taxonomy-bacteria}
+# Start by finding the top 20 genera *on average* over the samples
+p_bact_s2 <- asvs_bact_s2 %>%
+  inner_join(taxonomy, by = 'seqid') %>%
+  group_by(Domain, sample) %>%
+  # Calculate the relative abundance of each genera in each sample
+  summarise(relab = sum(relab)) %>%
+  # Calculate the *mean* relative abundance of each genera over the samples
+  summarise(mean_relab = sum(relab)) %>%
+  ungroup() %>%
+  # Filter out non-assigned genera
+  filter(!is.na(Domain)) %>%
+  # Select the top 20
+  top_n(20, mean_relab)
+# Add this information to the taxonomy table as the column topgenera
+taxonomy_bact_s2 <- taxonomy_sampling_2 %>%
+  # Join in the top 10 table. *Important* with left join, otherwise you loose rows in the
+  # taxonomy table that do not appear in the top 11 table.
+  left_join(
+    p_bact_s2 %>% 
+      # Duplicate the genera column, with the old name and as "topgenera"
+      transmute(Domain, topdomain = Domain),
+    by = 'Domain'
+  ) %>%
+  # Set topdomain to 'Other' for those that were not among the top 11
+  replace_na(list('topdomain' = 'Other'))
+```
+
+```{r}
+asvs_bact_s2 %>%
+  left_join(taxonomy_bact_s2, by = 'seqid') %>%
+  group_by(sample, Domain) %>% summarise(relab = sum(relab)) %>% ungroup() %>%
+  spread(sample, relab, fill = 0) %>%
+  write_tsv('asvs_bacteria_domain_s1.tsv')
+```
+### merging triplicates
+```{r}
+# Group samples by the first part of their name (i.e., "Bact.1", "Bact.2", etc.)
+samples_bact_grouped <- samples_bact %>%
+  filter(!area %in% c("orange", "yellow"))%>%
+  mutate(common_name = gsub("(\\.[0-9]+)\\..*", "\\1", name)) %>%
+  group_by(common_name) %>%
+  mutate(common_name = gsub("\\.", "", common_name)) %>%
+  ungroup()
+```
+
+```{r plot-top-domain}
+asvs_bact_s2 %>%
+  inner_join(taxonomy_bact_s2, by = 'seqid') %>%
+  inner_join(samples_bact_grouped, by = "sample")%>%
+  group_by(topdomain, sample, name, common_name, area, Rock_age) %>% summarise(relab = sum(relab)/3) %>% ungroup() %>%
+  ggplot(aes(
+    x = fct_relevel(common_name, rev(c("Bact1" , "Bact2", "Bact3" , "Bact4" , "Bact5" , "Bact6" , "Bact7" , "Bact8" ,  "Bact10" , "Bact13" ,  "Bact14" , "Bact15" , "Bact16" , "Bact17"))), 
+    y = relab, 
+    fill = fct_relevel(topdomain, "Other" , after = Inf))) +
+  geom_col() +
+  scale_fill_manual(values = myColors) +
+  coord_flip() +
+  facet_grid(. ~ factor(Rock_age, levels = c("young", "mid", "old")), scales = "free_x", drop = TRUE)+
+  labs(title = "Top 20 Domain-bacteria_Grouped_triplicates_sampling_2")+
+  ylab("Relative Abundance")+
+  xlab("Site")+
+  theme(
+    legend.position = 'bottom', legend.title = element_blank()) +
+  guides(fill = guide_legend(reverse = TRUE))
+```
+
+```{r}
+ggsave("figures/AMD_Prevent_StackedBar_Top_20_domain_bacteria_triplicates_s2.pdf" , width = 18 , height = 13, units = "cm")
+```
+
+
+
+
+
+
+
+
+#DIversity indicies and PCA
+
+
+```{r simple NMDS, sampling 1 bacterial primers}
+
+
+feature_table_bacteria_s1 <- read_tsv("AMD_Prevent_sampling_1_ASV_table.tsv",
+  col_types = cols(.default = col_double(), seqid = col_character()))
+
+feature_table_bacteria_s1 <- feature_table_bacteria_s1[ , -c(29,30,46:89)]
+
+T_otu_mat_s1 <- feature_table_bacteria_s1 %>% tibble::column_to_rownames("seqid") %>% as.matrix() %>% t()
+
+
+tax_mat_s1 <- taxonomy_bact_s1 %>% tibble::column_to_rownames("seqid") %>% as.matrix()
+
+samples_nmds_s1 <- samples_sampling_1 %>%
+  subset(domain == "bacteria") %>% tibble::column_to_rownames("sample") %>%filter(!area %in% c("orange", "yellow"))%>% as.matrix()
+  
+
+# Shannon's H' library(vegan)
+H<-diversity(T_otu_mat_s1)
+
+# Observed Richness
+richness<-specnumber(T_otu_mat_s1)
+
+# Pielou's Evenness
+evenness<- H/log(richness)
+
+# Create alpha diversity dataframe including environmental data pH + iron_total + Fe_HCL_soluble + Sulfur_total + S_HCL_Soluble
+alpha_s1 <- cbind(shannon = H, richness = richness, pielou = evenness, samples_nmds_s1) 
+
+alpha_s1<-data.frame(sample= row.names(alpha_s1), alpha_s1)
+
+head(alpha_s1)
+
+repl_AMD_Prevent_bacteria_s1.mdf<- T_otu_mat_s1
+
+AMD_Prevent_bacteria.bray.s1<- vegdist(repl_AMD_Prevent_bacteria_s1.mdf, method = "bray")
+
+AMD_Prevent_bacteria.bray.s1
+
+AMD_Prevent_bacteria.jac.s1 <- vegdist(repl_AMD_Prevent_bacteria_s1.mdf, method = "jaccard" , binary = T)
+
+AMD_Prevent_bacteria.jac.s1
+
+###PCOA
+
+# calculate principal coordinates analysis (Bray-Curtis)
+pcoa.AMD_Prevent_bacteria.bray.s1 <- cmdscale(AMD_Prevent_bacteria.bray.s1, k = 2, eig = T)
+
+# extract axis positions for each site from cmdscale object and create a dataframe for plotting
+pcoa.AMD_Prevent_bacteria.bray.plotting.s1 <- as.data.frame(pcoa.AMD_Prevent_bacteria.bray.s1$points)
+colnames(pcoa.AMD_Prevent_bacteria.bray.plotting.s1) <- c("axis_1", "axis_2")
+pcoa.AMD_Prevent_bacteria.bray.plotting.s1$site <- rownames(pcoa.AMD_Prevent_bacteria.bray.plotting.s1)
+
+pcoa.AMD_Prevent_bacteria.bray.plotting.s1 <- cbind(pcoa.AMD_Prevent_bacteria.bray.plotting.s1, samples_nmds_s1)
+#%>%select (...)
+
+# calculate the proportion of variance in the data which is explained by the first two PCoA axes
+pcoa.AMD_Prevent_bacteria.bray.s1$eig[1]/(sum(pcoa.AMD_Prevent_bacteria.bray.s1$eig))
+# resulting value is the Xlab 
+```
+```{r}
+pcoa.AMD_Prevent_bacteria.bray.s1$eig[2]/(sum(pcoa.AMD_Prevent_bacteria.bray.s1$eig))
+#resulting value is the ylab 
+```
+```{r}
+# create a PCoA plot
+pcoa.AMD_Prevent_bacteria.bray.plot.s1 <- ggplot(pcoa.AMD_Prevent_bacteria.bray.plotting.s1, aes(x = axis_1, y = axis_2)) +
+  geom_point(aes(colour = Rock_age, shape = Rock_age), size= 1.5) +
+  #geom_text_repel(aes(label = N_to_S_Site_names, element_text = 5),
+   #               max.overlaps = Inf,
+    #              min.segment.length = 0,
+     #             box.padding   = 0.35,
+      #            point.padding = 0.5,
+       #           segment.color = 'grey50') +
+   scale_fill_manual(values = myColors) +
+  theme_bw() + 
+  theme(plot.title =element_text(size= 5),
+        axis.text = element_text(size= 5),)+
+    labs(title = "Beta Diversity")+
+    xlab("PCA 1 (20.2%)") +
+    ylab("PCA 2 (9.7%)") +
+    annotate(geom = 'text', label = 'Bray-Curtis', x = -.35, y = .45, hjust = .8, vjust = -1)
+
+plot(pcoa.AMD_Prevent_bacteria.bray.plot.s1)
+```
+
+```{r}
+ggsave("figures/Figure_1_nmds_no_normalization_s1.pdf" , width = 18 , height = 13, units = "cm")
+```
+
+
+
+```{r}
+plot.shan.s1 <- ggplot(alpha_s1, aes(
+  x = fct_relevel(Rock_age, c("young" , "mid", "old")), 
+  y = as.numeric(shannon), 
+  colour = Rock_age)) +
+  geom_boxplot() +
+  #geom_point(size = 1.5) +
+  scale_fill_manual(values = myColors) +
+  labs(title = "Shannon's H'")+
+  ylab("") + 
+  xlab("") +
+  theme_bw() +
+  theme(plot.title =element_text(size= 5),
+        axis.text = element_text(size= 5),
+        axis.text.x = element_text(angle = 90, hjust = .5, vjust = 1))
+
+plot.rich.s1 <-ggplot(alpha_s1, aes(
+  x = fct_relevel(Rock_age, c("young" , "mid", "old")), 
+  y = as.numeric(richness), 
+  colour = Rock_age)) +
+  geom_boxplot() +
+  #geom_point(size = 1.5) +
+  scale_fill_manual(values = myColors) +
+  labs( title = "Species Richness")+
+  ylab("") +
+  xlab("") +
+  theme_bw() +
+  theme(plot.title =element_text(size= 5),
+        axis.text = element_text(size= 5),
+        axis.text.x = element_text(angle = 90, hjust = .5, vjust = 1))
+
+plot.even.s1 <- ggplot(alpha_s1, aes(
+  x = fct_relevel(Rock_age, c("young" , "mid", "old")), 
+  y = as.numeric(pielou), 
+  colour = Rock_age)) +
+  geom_boxplot() +
+  #geom_point(size = 1.5) +
+  scale_fill_manual(values = myColors) +
+  labs(title = "Pielou's Evenness")+
+  ylab("") +
+  xlab("") +
+  theme_bw() +
+  theme(plot.title =element_text(size= 5),
+        axis.text = element_text(size= 5),
+        axis.text.x = element_text(angle = 90, hjust = .5, vjust = 1))
+
+
+ggarrange (plot.shan.s1 ,
+             plot.rich.s1 , 
+             plot.even.s1 , 
+           common.legend = TRUE,
+           legend = "bottom",
+           nrow= 1)
+
+
+
+```
+
+```{r}
+ggsave("figures/Figure_1_AMD_Prevent_diversity_plots_bacteria_s1.pdf" , width = 18 , height = 13, units = "cm")
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+```{r simple NMDS, sampling 2 bacterial primers}
+
+
+feature_table_bacteria_s2 <- read_tsv("AMD_Prevent_sampling_2_ASV_table.tsv",
+  col_types = cols(.default = col_double(), seqid = col_character()))
+
+feature_table_bacteria_s2 <- feature_table_bacteria_s2[ , -c(29, 30, 31, 33, 34, 35, 36, 37, 39, 40, 41,42,45,46:78)]
+
+T_otu_mat_s2 <- feature_table_bacteria_s2 %>% tibble::column_to_rownames("seqid") %>% as.matrix() %>% t()
+
+
+tax_mat_s2 <- taxonomy_bact_s2 %>% tibble::column_to_rownames("seqid") %>% as.matrix()
+
+samples_nmds_s2 <- samples_sampling_2 %>%
+  subset(domain == "bacteria") %>% 
+  tibble::column_to_rownames("sample") %>%
+  filter(!area %in% c("orange", "yellow"))%>%
+  filter(!rownames(.) %in% c("P29902_1033" , "P29902_1035" , "P29902_1036" , "P29902_1037" ,"P29902_1038" ,"P29902_1039" , "P29902_1041" , "P29902_1042" , "P29902_1043" ,"P29902_1044" , "P29902_1047")) %>%
+  as.matrix()
+  
+
+# Shannon's H' library(vegan)
+H<-diversity(T_otu_mat_s2)
+
+# Observed Richness
+richness<-specnumber(T_otu_mat_s2)
+
+# Pielou's Evenness
+evenness<- H/log(richness)
+
+# Create alpha diversity dataframe including environmental data pH + iron_total + Fe_HCL_soluble + Sulfur_total + S_HCL_Soluble
+alpha_s2 <- cbind(shannon = H, richness = richness, pielou = evenness, samples_nmds_s2) 
+
+alpha_s2<-data.frame(sample= row.names(alpha_s2), alpha_s2)
+
+head(alpha_s2)
+
+repl_AMD_Prevent_bacteria_s2.mdf<- T_otu_mat_s2
+
+AMD_Prevent_bacteria.bray.s2<- vegdist(repl_AMD_Prevent_bacteria_s2.mdf, method = "bray")
+
+AMD_Prevent_bacteria.bray.s2
+
+AMD_Prevent_bacteria.jac.s2 <- vegdist(repl_AMD_Prevent_bacteria_s2.mdf, method = "jaccard" , binary = T)
+
+AMD_Prevent_bacteria.jac.s2
+
+###PCOA
+
+# calculate principal coordinates analysis (Bray-Curtis)
+pcoa.AMD_Prevent_bacteria.bray.s2 <- cmdscale(AMD_Prevent_bacteria.bray.s2, k = 2, eig = T)
+
+# extract axis positions for each site from cmdscale object and create a dataframe for plotting
+pcoa.AMD_Prevent_bacteria.bray.plotting.s2 <- as.data.frame(pcoa.AMD_Prevent_bacteria.bray.s2$points)
+colnames(pcoa.AMD_Prevent_bacteria.bray.plotting.s2) <- c("axis_1", "axis_2")
+pcoa.AMD_Prevent_bacteria.bray.plotting.s2$site <- rownames(pcoa.AMD_Prevent_bacteria.bray.plotting.s2)
+
+pcoa.AMD_Prevent_bacteria.bray.plotting.s2 <- cbind(pcoa.AMD_Prevent_bacteria.bray.plotting.s2, samples_nmds_s2)
+#%>%select (...)
+```
+
+```{r}
+# calculate the proportion of variance in the data which is explained by the first two PCoA axes
+pcoa.AMD_Prevent_bacteria.bray.s2$eig[1]/(sum(pcoa.AMD_Prevent_bacteria.bray.s2$eig))
+# resulting value is the Xlab 
+```
+```{r}
+pcoa.AMD_Prevent_bacteria.bray.s2$eig[2]/(sum(pcoa.AMD_Prevent_bacteria.bray.s2$eig))
+#resulting value is the ylab 
+```
+```{r}
+# create a PCoA plot
+pcoa.AMD_Prevent_bacteria.bray.plot.s2 <- ggplot(pcoa.AMD_Prevent_bacteria.bray.plotting.s2, aes(x = axis_1, y = axis_2)) +
+  geom_point(aes(colour = Rock_age, shape = Rock_age), size= 1.5) +
+  #geom_text_repel(aes(label = N_to_S_Site_names, element_text = 5),
+   #               max.overlaps = Inf,
+    #              min.segment.length = 0,
+     #             box.padding   = 0.35,
+      #            point.padding = 0.5,
+       #           segment.color = 'grey50') +
+   scale_fill_manual(values = myColors) +
+  theme_bw() + 
+  theme(plot.title =element_text(size= 5),
+        axis.text = element_text(size= 5),)+
+    labs(title = "Beta Diversity")+
+    xlab("PCA 1 (17.3%)") +
+    ylab("PCA 2 (10.7%)") +
+    annotate(geom = 'text', label = 'Bray-Curtis', x = -.35, y = .45, hjust = .8, vjust = -1)
+
+plot(pcoa.AMD_Prevent_bacteria.bray.plot.s2)
+```
+
+```{r}
+ggsave("figures/Figure_1_nmds_no_normalization_s2.pdf" , width = 18 , height = 13, units = "cm")
+```
+
+
+
+```{r}
+plot.shan.s2 <- ggplot(alpha_s2, aes(
+  x = fct_relevel(Rock_age, c("young" , "mid", "old")), 
+  y = as.numeric(shannon), 
+  colour = Rock_age)) +
+  geom_boxplot() +
+  #geom_point(size = 1.5) +
+  scale_fill_manual(values = myColors) +
+  labs(title = "Shannon's H'")+
+  ylab("") + 
+  xlab("") +
+  theme_bw() +
+  theme(plot.title =element_text(size= 5),
+        axis.text = element_text(size= 5),
+        axis.text.x = element_text(angle = 90, hjust = .5, vjust = 1))
+
+plot.rich.s2 <-ggplot(alpha_s2, aes(
+  x = fct_relevel(Rock_age, c("young" , "mid", "old")),  
+  y = as.numeric(richness), 
+  colour = Rock_age)) +
+  geom_boxplot() +
+  #geom_point(size = 1.5) +
+  scale_fill_manual(values = myColors) +
+  labs( title = "Species Richness")+
+  ylab("") +
+  xlab("") +
+  theme_bw() +
+  theme(plot.title =element_text(size= 5),
+        axis.text = element_text(size= 5),
+        axis.text.x = element_text(angle = 90, hjust = .5, vjust = 1))
+
+plot.even.s2 <- ggplot(alpha_s2, aes(
+  x = fct_relevel(Rock_age, c("young" , "mid", "old")),  
+  y = as.numeric(pielou), 
+  colour = Rock_age)) +
+  geom_boxplot() +
+  #geom_point(size = 1.5) +
+  scale_fill_manual(values = myColors) +
+  labs(title = "Pielou's Evenness")+
+  ylab("") +
+  xlab("") +
+  theme_bw() +
+  theme(plot.title =element_text(size= 5),
+        axis.text = element_text(size= 5),
+        axis.text.x = element_text(angle = 90, hjust = .5, vjust = 1))
+
+
+ggarrange (plot.shan.s2 ,
+             plot.rich.s2 , 
+             plot.even.s2 , 
+           common.legend = TRUE,
+           legend = "bottom",
+           nrow= 1)
+
+
+
+```
+
+```{r}
+ggsave("figures/Figure_1_AMD_Prevent_diversity_plots_bacteria_s2.pdf" , width = 18 , height = 13, units = "cm")
+```
+
+
+
+
+
+#DIversity indicies and PCA, combined
+
+
+```{r simple NMDS, sampling 1 bacterial primers}
+
+#prep sampling 1
+feature_table_bacteria_s1_combined <- read_tsv("AMD_Prevent_sampling_1_ASV_table.tsv",
+  col_types = cols(.default = col_double(), seqid = col_character()))
+
+feature_table_bacteria_s1_combined <- feature_table_bacteria_s1_combined[ , -c(29,30,46:89)]
+
+T_otu_mat_s1_combined <- feature_table_bacteria_s1 %>% tibble::column_to_rownames("seqid") %>% as.matrix() %>% t()
+
+
+tax_mat_s1_combined <- taxonomy_bact_s1 %>% tibble::column_to_rownames("seqid") %>% as.matrix()
+
+samples_nmds_s1_combined <- samples_sampling_1 %>%
+  subset(domain == "bacteria") %>% tibble::column_to_rownames("sample") %>%filter(!area %in% c("orange", "yellow"))
+  
+
+#prep sampling 2
+feature_table_bacteria_s2_combined <- read_tsv("AMD_Prevent_sampling_2_ASV_table.tsv",
+  col_types = cols(.default = col_double(), seqid = col_character()))
+
+feature_table_bacteria_s2_combined <- feature_table_bacteria_s2_combined[ , -c(29, 30, 31, 33, 34, 35, 36, 37, 39, 40, 41, 42, 45, 46:78)]
+
+T_otu_mat_s2_combined <- feature_table_bacteria_s2_combined %>% tibble::column_to_rownames("seqid") %>% as.matrix() %>% t()
+
+
+tax_mat_s2_combined <- taxonomy_bact_s2 %>% tibble::column_to_rownames("seqid") %>% as.matrix()
+
+samples_nmds_s2_combined <- samples_sampling_2 %>%
+  subset(domain == "bacteria") %>% 
+  tibble::column_to_rownames("sample") %>%
+  filter(!area %in% c("orange", "yellow"))%>%
+  filter(!rownames(.) %in% c("P29902_1033" , "P29902_1035" , "P29902_1036" , "P29902_1037" ,"P29902_1038" ,"P29902_1039" , "P29902_1041" , "P29902_1042" , "P29902_1043" ,"P29902_1044" , "P29902_1047")) 
+  
+
+#merge sampling 1 and sampling 2
+
+
+feature_table_bacteria_s1s2_combined <- merge(feature_table_bacteria_s1_combined, feature_table_bacteria_s2_combined, by = "seqid" , all = TRUE, suffixes = c("_s1" , "_s2"))
+
+feature_table_bacteria_s1s2_combined[is.na(feature_table_bacteria_s1s2_combined)] <- 0
+
+
+T_otu_mat_s1s2_combined <- feature_table_bacteria_s1s2_combined %>% tibble::column_to_rownames("seqid") %>% as.matrix() %>% t()
+
+
+tax_mat_s1s2_combined <- merge(taxonomy_bact_s1 , taxonomy_bact_s2) %>% tibble::column_to_rownames("seqid") %>% as.matrix()
+
+
+samples_nmds_s1s2_combined <- bind_rows(samples_nmds_s1_combined  , samples_nmds_s2_combined)
+
+samples_nmds_s1s2_combined <- samples_nmds_s1s2_combined %>% as.matrix()
+
+
+
+
+# Shannon's H' library(vegan)
+H<-diversity(T_otu_mat_s1s2_combined)
+
+# Observed Richness
+richness<-specnumber(T_otu_mat_s1s2_combined)
+
+# Pielou's Evenness
+evenness<- H/log(richness)
+
+# Create alpha diversity dataframe including environmental data pH + iron_total + Fe_HCL_soluble + Sulfur_total + S_HCL_Soluble
+alpha_s1s2_combined <- cbind(shannon = H, richness = richness, pielou = evenness, samples_nmds_s1s2_combined) 
+
+alpha_s1s2_combined<-data.frame(sample= row.names(alpha_s1s2_combined), alpha_s1s2_combined)
+
+head(alpha_s1s2_combined)
+
+repl_AMD_Prevent_bacteria_s1s2_combined.mdf<- T_otu_mat_s1s2_combined
+
+AMD_Prevent_bacteria.bray.s1s2<- vegdist(repl_AMD_Prevent_bacteria_s1s2_combined.mdf, method = "bray")
+
+AMD_Prevent_bacteria.bray.s1s2
+
+AMD_Prevent_bacteria.jac.s1s2 <- vegdist(repl_AMD_Prevent_bacteria_s1s2_combined.mdf, method = "jaccard" , binary = T)
+
+AMD_Prevent_bacteria.jac.s1s2
+
+###PCOA
+
+# calculate principal coordinates analysis (Bray-Curtis)
+pcoa.AMD_Prevent_bacteria.bray.s1s2 <- cmdscale(AMD_Prevent_bacteria.bray.s1s2, k = 2, eig = T)
+
+# extract axis positions for each site from cmdscale object and create a dataframe for plotting
+pcoa.AMD_Prevent_bacteria.bray.plotting.s1s2 <- as.data.frame(pcoa.AMD_Prevent_bacteria.bray.s1s2$points)
+colnames(pcoa.AMD_Prevent_bacteria.bray.plotting.s1s2) <- c("axis_1", "axis_2")
+pcoa.AMD_Prevent_bacteria.bray.plotting.s1s2$site <- rownames(pcoa.AMD_Prevent_bacteria.bray.plotting.s1s2)
+
+pcoa.AMD_Prevent_bacteria.bray.plotting.s1s2 <- cbind(pcoa.AMD_Prevent_bacteria.bray.plotting.s1s2, samples_nmds_s1s2_combined)
+#%>%select (...)
+```
+
+```{r}
+# calculate the proportion of variance in the data which is explained by the first two PCoA axes
+pcoa.AMD_Prevent_bacteria.bray.s1s2$eig[1]/(sum(pcoa.AMD_Prevent_bacteria.bray.s1s2$eig))
+# resulting value is the Xlab 
+```
+```{r}
+pcoa.AMD_Prevent_bacteria.bray.s1s2$eig[2]/(sum(pcoa.AMD_Prevent_bacteria.bray.s1s2$eig))
+#resulting value is the ylab 
+```
+```{r}
+# create a PCoA plot
+pcoa.AMD_Prevent_bacteria.bray.plot.s1s2 <- ggplot(pcoa.AMD_Prevent_bacteria.bray.plotting.s1s2, aes(x = axis_1, y = axis_2)) +
+  geom_point(aes(colour = Rock_age, shape = sampling), size= 1.5) +
+  #geom_text_repel(aes(label = name, element_text = 5),
+   #               max.overlaps = Inf,
+    #              min.segment.length = 0,
+     #             box.padding   = 0.35,
+      #            point.padding = 0.5,
+       #           segment.color = 'grey50') +
+   scale_fill_manual(values = myColors) +
+  theme_bw() + 
+  theme(plot.title =element_text(size= 5),
+        axis.text = element_text(size= 5),)+
+    labs(title = "Beta Diversity")+
+    xlab("PCA 1 (16.0%)") +
+    ylab("PCA 2 (8.6%)") +
+    annotate(geom = 'text', label = 'Bray-Curtis', x = -.35, y = .45, hjust = .8, vjust = -1)
+
+plot(pcoa.AMD_Prevent_bacteria.bray.plot.s1s2)
+```
+
+```{r}
+ggsave("figures/Figure_1_nmds_no_normalization_s1s2_combined.pdf" , width = 18 , height = 13, units = "cm")
+```
+
+
+
+```{r}
+plot.shan.s1s2 <- ggplot(alpha_s1s2_combined, aes(
+  x = fct_relevel(Rock_age, c("young" , "mid", "old")), 
+  y = as.numeric(shannon), 
+  colour = sampling)) +
+  geom_boxplot() +
+  #geom_point(size = 1.5) +
+  scale_fill_manual(values = myColors) +
+  labs(title = "Shannon's H'")+
+  ylab("") + 
+  xlab("") +
+  theme_bw() +
+  theme(plot.title =element_text(size= 5),
+        axis.text = element_text(size= 5),
+        axis.text.x = element_text(angle = 90, hjust = .5, vjust = 1))
+
+plot.rich.s1s2 <-ggplot(alpha_s1s2_combined, aes(
+  x = fct_relevel(Rock_age, c("young" , "mid", "old")),  
+  y = as.numeric(richness), 
+  colour = sampling)) +
+  geom_boxplot() +
+  #geom_point(size = 1.5) +
+  scale_fill_manual(values = myColors) +
+  labs( title = "Species Richness")+
+  ylab("") +
+  xlab("") +
+  theme_bw() +
+  theme(plot.title =element_text(size= 5),
+        axis.text = element_text(size= 5),
+        axis.text.x = element_text(angle = 90, hjust = .5, vjust = 1))
+
+plot.even.s1s2 <- ggplot(alpha_s1s2_combined, aes(
+  x = fct_relevel(Rock_age, c("young" , "mid", "old")),  
+  y = as.numeric(pielou), 
+  colour = sampling)) +
+  geom_boxplot() +
+  #geom_point(size = 1.5) +
+  scale_fill_manual(values = myColors) +
+  labs(title = "Pielou's Evenness")+
+  ylab("") +
+  xlab("") +
+  theme_bw() +
+  theme(plot.title =element_text(size= 5),
+        axis.text = element_text(size= 5),
+        axis.text.x = element_text(angle = 90, hjust = .5, vjust = 1))
+
+
+ggarrange (plot.shan.s1s2 ,
+             plot.rich.s1s2 , 
+             plot.even.s1s2 , 
+           common.legend = TRUE,
+           legend = "bottom",
+           nrow= 1)
+
+
+
+```
+
+```{r}
+ggsave("figures/Figure_1_AMD_Prevent_diversity_plots_bacteria_s1s2_combined.pdf" , width = 18 , height = 13, units = "cm")
+```
+
+
+
+```{r diversity statistics, all sampling and treatment}
+
+shannon_anova <- aov(shannon ~ sampling + Rock_age , data = alpha_s1s2_combined)
+richness_anova <- aov( richness ~ sampling + Rock_age, data = alpha_s1s2_combined)
+pielou_anova <- aov(pielou ~ sampling + Rock_age, data = alpha_s1s2_combined)
+
+shannon_tukey <- shannon_anova %>% TukeyHSD()
+richness_tukey <- richness_anova %>% TukeyHSD()
+pielou_tukey <- pielou_anova %>% TukeyHSD()
+
+
+summary(shannon_anova)
+print(shannon_tukey)
+summary(richness_anova)
+print(richness_tukey)
+summary(pielou_anova)
+print(pielou_tukey)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+##mid sites only, relab stacked bars, PCA, RDA
+
+
+```{r read in the s1 and s2 asvs tables and then }
+sequencing_depth_bact_s1_mid <- read_tsv("AMD_Prevent_sampling_1_ASV_table.tsv",
+  col_types = cols(.default = col_double(), seqid = col_character()))
+
+# Identify the column number to subset mid from sequencing_depth_bact and remove them 
+sequencing_depth_bact_s1_mid <- sequencing_depth_bact_s1_mid[ , c(1,20:25,26:28)]
+
+# Read in ASV table for sampling 2
+sequencing_depth_bact_s2_mid <- read_tsv("AMD_Prevent_sampling_2_ASV_table.tsv",
+  col_types = cols(.default = col_double(), seqid = col_character()))
+
+# Identify the column number to subset from sequencing_depth_bact and remove them 
+sequencing_depth_bact_s2_mid <- sequencing_depth_bact_s2_mid[ , c(1,20:25,26:28)]
+
+sequencing_depth_bact_s1s2_mid <- bind_rows (sequencing_depth_bact_s1_mid, sequencing_depth_bact_s2_mid)
+
+asvs_bact_mid <- sequencing_depth_bact_s1s2_mid %>%
+  gather(sample, count, 2:ncol(.)) %>% 
+  filter(count > 0) %>%
+  group_by(sample) %>% 
+  mutate(relab = count/sum(count)) %>% 
+  ungroup()
+
+```
+
+
+```{r, blend and trim}
+
+# Select the columns you want to compare
+columns_to_compare <- c("seqid", "Domain", "Kingdom", "Phylum", "Class", "Order", "Family", "Genus", "Species")
+
+# Combine the data frames
+taxonomy_mid <- bind_rows(taxonomy_sampling_1, taxonomy_sampling_2) %>%
+  # Remove duplicates based on selected columns
+  distinct(across(all_of(columns_to_compare), .names = "{.col}"))
+
+samples_mid <- samples %>% 
+  subset(Rock_age == "mid") %>% subset (domain = "bacteria")
+
+```
+
+
+
+
+```{r assign-top10-genera-to-taxonomy-bacteria}
+# Start by finding the top 20 genera *on average* over the samples
+p_bact_mid <- asvs_bact_mid %>%
+  inner_join(taxonomy_mid, by = 'seqid') %>%
+  group_by(Genus, sample) %>%
+  # Calculate the relative abundance of each genera in each sample
+  summarise(relab = sum(relab)) %>%
+  # Calculate the *mean* relative abundance of each genera over the samples
+  summarise(mean_relab = sum(relab)) %>%
+  ungroup() %>%
+  # Filter out non-assigned genera
+  filter(!is.na(Genus)) %>%
+  # Select the top 20
+  top_n(20, mean_relab)
+# Add this information to the taxonomy table as the column topgenera
+taxonomy_bact_mid <- taxonomy_mid %>%
+  # Join in the top 10 table. *Important* with left join, otherwise you loose rows in the
+  # taxonomy table that do not appear in the top 20 table.
+  left_join(
+    p_bact_mid %>% 
+      # Duplicate the genera column, with the old name and as "topgenera"
+      transmute(Genus, topgenus = Genus),
+    by = 'Genus'
+  ) %>%
+  # Set topgenus to 'Other' for those that were not among the top 11
+  replace_na(list('topgenus' = 'Other'))
+```
+
+```{r}
+asvs_bact_mid %>%
+  left_join(taxonomy_mid, by = 'seqid') %>%
+  group_by(sample, Genus) %>% summarise(relab = sum(relab)) %>% ungroup() %>%
+  spread(sample, relab, fill = 0) %>%
+  write_tsv('asvs_bacteria_genus_s1_mid.tsv')
+```
+### merging triplicates
+```{r}
+# Group samples by the first part of their name (i.e., "Bact.1", "Bact.2", etc.)
+samples_bact_grouped_mid <- samples_mid %>%
+  subset(Rock_age == "mid") %>%
+  subset(domain == "bacteria") %>%
+  mutate(common_name = gsub("(\\.[0-9]+)\\..*", "\\1", name)) %>%
+  group_by(sampling, common_name) %>%
+  mutate(common_name = gsub("\\.", "", common_name)) %>%
+  ungroup()
+```
+
+```{r plot-top-genus}
+p<- asvs_bact_mid %>%
+  inner_join(taxonomy_bact_mid, by = 'seqid') %>%
+  inner_join(samples_bact_grouped_mid, by = "sample") %>%
+  group_by(topgenus, sample, common_name, sampling) %>% 
+  summarise(relab = sum(relab)/3) %>% 
+  ungroup() %>%
+  ggplot(aes(
+    x = fct_relevel(common_name, rev(c("Bact7" , "Bact8" ,  "Bact10"))), 
+    y = relab, 
+    fill = topgenus)) +
+  geom_col() +
+  scale_fill_manual(values = myColors) +
+  coord_flip() +
+  facet_grid(. ~ factor(sampling, levels = c("1", "2")), scales = "free_x", drop = TRUE) +
+  labs(title = "Top 20 Genus-bacteria_Grouped_triplicates_sampling_mid") +
+  ylab("Relative Abundance") +
+  xlab("Site") +
+  theme(
+    legend.position = 'bottom', legend.title = element_blank()
+  )
+```
+
+```{r}
+ggsave("figures/AMD_Prevent_StackedBar_Top_20_genus_bacteria_triplicates_mid.pdf", width = 18 , height = 13, units = "cm")
+```
+
+
+```{r assign-top10-genera-to-taxonomy-bacteria}
+# Start by finding the top 20 genera *on average* over the samples
+p_bact_s1 <- asvs_bact_s1 %>%
+  inner_join(taxonomy, by = 'seqid') %>%
+  group_by(Genus, sample) %>%
+  # Calculate the relative abundance of each genera in each sample
+  summarise(relab = sum(relab)) %>%
+  # Calculate the *mean* relative abundance of each genera over the samples
+  summarise(mean_relab = sum(relab)) %>%
+  ungroup() %>%
+  # Filter out non-assigned genera
+  filter(!is.na(Genus)) %>%
+  # Select the top 20
+  top_n(20, mean_relab)
+# Add this information to the taxonomy table as the column topgenera
+taxonomy_bact_s1 <- taxonomy_sampling_1 %>%
+  # Join in the top 10 table. *Important* with left join, otherwise you loose rows in the
+  # taxonomy table that do not appear in the top 11 table.
+  left_join(
+    p_bact_s1 %>% 
+      # Duplicate the genera column, with the old name and as "topgenera"
+      transmute(Genus, topgenus = Genus),
+    by = 'Genus'
+  ) %>%
+  # Set topgenus to 'Other' for those that were not among the top 11
+  replace_na(list('topgenus' = 'Other'))
+```
+
+```{r}
+asvs_bact_s1 %>%
+  left_join(taxonomy_bact_s1, by = 'seqid') %>%
+  group_by(sample, Genus) %>% summarise(relab = sum(relab)) %>% ungroup() %>%
+  spread(sample, relab, fill = 0) %>%
+  write_tsv('asvs_bacteria_genus_s1.tsv')
+```
+### merging triplicates
+```{r}
+# Group samples by the first part of their name (i.e., "Bact.1", "Bact.2", etc.)
+samples_bact_grouped <- samples_bact %>%
+  subset(Rock_age == "mid") %>%
+  filter(!area %in% c("orange", "yellow"))%>%
+  mutate(common_name = gsub("(\\.[0-9]+)\\..*", "\\1", name)) %>%
+  group_by(common_name) %>%
+  mutate(common_name = gsub("\\.", "", common_name)) %>%
+  ungroup()
+```
+
+```{r plot-top-genus}
+asvs_bact_s1 %>%
+  inner_join(taxonomy_bact_s1, by = 'seqid') %>%
+  inner_join(samples_bact_grouped, by = "sample")%>%
+  group_by(topgenus, sample, name, common_name, area, Rock_age) %>% summarise(relab = sum(relab)/3) %>% ungroup() %>%
+  ggplot(aes(
+    x = fct_relevel(common_name, rev(c("Bact7" , "Bact8" ,  "Bact10"))), 
+    y = relab, 
+    fill = topgenus)) +
+  geom_col() +
+  scale_fill_manual(values = myColors) +
+  coord_flip() +
+  facet_grid(. ~ factor(Rock_age, levels = c("young", "mid", "old")), scales = "free_x", drop = TRUE)+
+  labs(title = "Top 20 Genus-bacteria_Grouped_triplicates_sampling_1")+
+  ylab("Relative Abundance")+
+  xlab("Site")+
+  theme(
+    legend.position = 'bottom', legend.title = element_blank()
+    
+  )
+```
+
+```{r}
+ggsave("figures/AMD_Prevent_StackedBar_Top_20_genus_bacteria_triplicates_s1_mid.pdf", width = 18 , height = 13, units = "cm")
+```
+
+
+#sampling 2, facet_grid by area 1,2,3
+
+```{r assign-top10-genera-to-taxonomy-bacteria}
+# Start by finding the top 20 genera *on average* over the samples
+p_bact_s2 <- asvs_bact_s2 %>%
+  inner_join(taxonomy, by = 'seqid') %>%
+  group_by(Genus, sample) %>%
+  # Calculate the relative abundance of each genera in each sample
+  summarise(relab = sum(relab)) %>%
+  # Calculate the *mean* relative abundance of each genera over the samples
+  summarise(mean_relab = sum(relab)) %>%
+  ungroup() %>%
+  # Filter out non-assigned genera
+  filter(!is.na(Genus)) %>%
+  # Select the top 20
+  top_n(20, mean_relab)
+# Add this information to the taxonomy table as the column topgenera
+taxonomy_bact_s2 <- taxonomy_sampling_2 %>%
+  # Join in the top 10 table. *Important* with left join, otherwise you loose rows in the
+  # taxonomy table that do not appear in the top 11 table.
+  left_join(
+    p_bact_s2 %>% 
+      # Duplicate the genera column, with the old name and as "topgenera"
+      transmute(Genus, topgenus = Genus),
+    by = 'Genus'
+  ) %>%
+  # Set topgenus to 'Other' for those that were not among the top 11
+  replace_na(list('topgenus' = 'Other'))
+```
+
+```{r}
+asvs_bact_s2 %>%
+  left_join(taxonomy_bact_s2, by = 'seqid') %>%
+  group_by(sample, Genus) %>% summarise(relab = sum(relab)) %>% ungroup() %>%
+  spread(sample, relab, fill = 0) %>%
+  write_tsv('asvs_bacteria_genus_s2.tsv')
+```
+### merging triplicates
+```{r}
+# Group samples by the first part of their name (i.e., "Bact.1", "Bact.2", etc.)
+samples_bact_grouped <- samples_bact %>%
+  subset(Rock_age == "mid") %>%
+  filter(!area %in% c("orange", "yellow"))%>%
+  mutate(common_name = gsub("(\\.[0-9]+)\\..*", "\\1", name)) %>%
+  group_by(common_name) %>%
+  mutate(common_name = gsub("\\.", "", common_name)) %>%
+  ungroup()
+```
+
+```{r plot-top-genus}
+asvs_bact_s2 %>%
+  inner_join(taxonomy_bact_s2, by = 'seqid') %>%
+  inner_join(samples_bact_grouped, by = "sample")%>%
+  group_by(topgenus, sample, name, common_name, area, Rock_age) %>% summarise(relab = sum(relab)/3) %>% ungroup() %>%
+  ggplot(aes(
+    x = fct_relevel(common_name, rev(c("Bact7" , "Bact8" ,  "Bact10"))), 
+    y = relab, 
+    fill = topgenus)) +
+  geom_col() +
+  scale_fill_manual(values = myColors) +
+  coord_flip() +
+  facet_grid(. ~ factor(Rock_age, levels = c("young", "mid", "old")), scales = "free_x", drop = TRUE)+
+  labs(title = "Top 20 Genus-bacteria_Grouped_triplicates_sampling_2")+
+  ylab("Relative Abundance")+
+  xlab("Site")+
+  theme(
+    legend.position = 'bottom', legend.title = element_blank()
+    
+  )
+```
+
+```{r}
+ggsave("figures/AMD_Prevent_StackedBar_Top_20_genus_bacteria_triplicates_s2_mid.pdf" , width = 18 , height = 13, units = "cm")
+```
+
+
+
+
+##other taxonomic levels
+
+#family
+
+```{r assign-top10-family-to-taxonomy-bacteria}
+# Start by finding the top 20 family *on average* over the samples
+p_bact_mid <- asvs_bact_mid %>%
+  inner_join(taxonomy_mid, by = 'seqid') %>%
+  group_by(Family, sample) %>%
+  # Calculate the relative abundance of each family in each sample
+  summarise(relab = sum(relab)) %>%
+  # Calculate the *mean* relative abundance of each family over the samples
+  summarise(mean_relab = sum(relab)) %>%
+  ungroup() %>%
+  # Filter out non-assigned family
+  filter(!is.na(Family)) %>%
+  # Select the top 20
+  top_n(20, mean_relab)
+# Add this information to the taxonomy table as the column topfamily
+taxonomy_bact_mid <- taxonomy_mid %>%
+  # Join in the top 10 table. *Important* with left join, otherwise you loose rows in the
+  # taxonomy table that do not appear in the top 20 table.
+  left_join(
+    p_bact_mid %>% 
+      # Duplicate the family column, with the old name and as "topfamily"
+      transmute(Family, topfamily = Family),
+    by = 'Family'
+  ) %>%
+  # Set topfamily to 'Other' for those that were not among the top 11
+  replace_na(list('topfamily' = 'Other'))
+```
+
+```{r}
+asvs_bact_mid %>%
+  left_join(taxonomy_bact_mid, by = 'seqid') %>%
+  group_by(sample, Family) %>% summarise(relab = sum(relab)) %>% ungroup() %>%
+  spread(sample, relab, fill = 0) %>%
+  write_tsv('asvs_bacteria_family_s1_mid.tsv')
+```
+### merging triplicates
+```{r}
+# Group samples by the first part of their name (i.e., "Bact.1", "Bact.2", etc.)
+samples_bact_grouped_mid <- samples_bact %>%
+  subset(Rock_age == "mid") %>%
+ mutate(common_name = gsub("(\\.[0-9]+)\\..*", "\\1", name)) %>%
+  group_by(sampling, common_name) %>%
+  mutate(common_name = gsub("\\.", "", common_name)) %>%
+  ungroup()
+```
+
+```{r plot-top-family}
+asvs_bact_mid %>%
+  inner_join(taxonomy_bact_mid, by = 'seqid') %>%
+  inner_join(samples_bact_grouped_mid, by = "sample") %>%
+  group_by(topfamily, sample, common_name, sampling) %>% 
+  summarise(relab = sum(relab)/3) %>% 
+  ungroup() %>%
+  ggplot(aes(
+    x = fct_relevel(common_name, rev(c("Bact7" , "Bact8" ,  "Bact10"))), 
+    y = relab, 
+    fill = topfamily)) +
+  geom_col() +
+  scale_fill_manual(values = myColors) +
+  coord_flip() +
+  facet_grid(. ~ factor(sampling, levels = c("1", "2")), scales = "free_x", drop = TRUE) +
+  labs(title = "Top 20 Family-bacteria_Grouped_triplicates_sampling_mid") +
+  ylab("Relative Abundance") +
+  xlab("Site") +
+  theme(
+    legend.position = 'bottom', legend.title = element_blank()
+  )
+```
+
+```{r}
+ggsave("figures/AMD_Prevent_StackedBar_Top_20_family_bacteria_triplicates_mid.pdf", width = 18 , height = 13, units = "cm")
+```
+
+
+```{r assign-top10-family-to-taxonomy-bacteria}
+# Start by finding the top 20 family *on average* over the samples
+p_bact_s1 <- asvs_bact_s1 %>%
+  inner_join(taxonomy, by = 'seqid') %>%
+  group_by(Family, sample) %>%
+  # Calculate the relative abundance of each family in each sample
+  summarise(relab = sum(relab)) %>%
+  # Calculate the *mean* relative abundance of each family over the samples
+  summarise(mean_relab = sum(relab)) %>%
+  ungroup() %>%
+  # Filter out non-assigned family
+  filter(!is.na(Family)) %>%
+  # Select the top 20
+  top_n(20, mean_relab)
+# Add this information to the taxonomy table as the column topfamily
+taxonomy_bact_s1 <- taxonomy_sampling_1 %>%
+  # Join in the top 10 table. *Important* with left join, otherwise you loose rows in the
+  # taxonomy table that do not appear in the top 11 table.
+  left_join(
+    p_bact_s1 %>% 
+      # Duplicate the family column, with the old name and as "topfamily"
+      transmute(Family, topfamily = Family),
+    by = 'Family'
+  ) %>%
+  # Set topfamily to 'Other' for those that were not among the top 11
+  replace_na(list('topfamily' = 'Other'))
+```
+
+```{r}
+asvs_bact_s1 %>%
+  left_join(taxonomy_bact_s1, by = 'seqid') %>%
+  group_by(sample, Family) %>% summarise(relab = sum(relab)) %>% ungroup() %>%
+  spread(sample, relab, fill = 0) %>%
+  write_tsv('asvs_bacteria_family_s1.tsv')
+```
+### merging triplicates
+```{r}
+# Group samples by the first part of their name (i.e., "Bact.1", "Bact.2", etc.)
+samples_bact_grouped <- samples_bact %>%
+  subset(Rock_age == "mid") %>%
+  filter(!area %in% c("orange", "yellow"))%>%
+  mutate(common_name = gsub("(\\.[0-9]+)\\..*", "\\1", name)) %>%
+  group_by(common_name) %>%
+  mutate(common_name = gsub("\\.", "", common_name)) %>%
+  ungroup()
+```
+
+```{r plot-top-family}
+asvs_bact_s1 %>%
+  inner_join(taxonomy_bact_s1, by = 'seqid') %>%
+  inner_join(samples_bact_grouped, by = "sample")%>%
+  group_by(topfamily, sample, name, common_name, area, Rock_age) %>% summarise(relab = sum(relab)/3) %>% ungroup() %>%
+  ggplot(aes(
+    x = fct_relevel(common_name, rev(c("Bact7" , "Bact8" ,  "Bact10"))), 
+    y = relab, 
+    fill = topfamily)) +
+  geom_col() +
+  scale_fill_manual(values = myColors) +
+  coord_flip() +
+  facet_grid(. ~ factor(Rock_age, levels = c("young", "mid", "old")), scales = "free_x", drop = TRUE)+
+  labs(title = "Top 20 Family-bacteria_Grouped_triplicates_sampling_1")+
+  ylab("Relative Abundance")+
+  xlab("Site")+
+  theme(
+    legend.position = 'bottom', legend.title = element_blank()
+    
+  )
+```
+
+```{r}
+ggsave("figures/AMD_Prevent_StackedBar_Top_20_family_bacteria_triplicates_s1_mid.pdf", width = 18 , height = 13, units = "cm")
+```
+
+
+#sampling 2, facet_grid by area 1,2,3
+
+```{r assign-top10-family-to-taxonomy-bacteria}
+# Start by finding the top 20 family *on average* over the samples
+p_bact_s2 <- asvs_bact_s2 %>%
+  inner_join(taxonomy, by = 'seqid') %>%
+  group_by(Family, sample) %>%
+  # Calculate the relative abundance of each family in each sample
+  summarise(relab = sum(relab)) %>%
+  # Calculate the *mean* relative abundance of each family over the samples
+  summarise(mean_relab = sum(relab)) %>%
+  ungroup() %>%
+  # Filter out non-assigned family
+  filter(!is.na(Family)) %>%
+  # Select the top 20
+  top_n(20, mean_relab)
+# Add this information to the taxonomy table as the column topfamily
+taxonomy_bact_s2 <- taxonomy_sampling_2 %>%
+  # Join in the top 10 table. *Important* with left join, otherwise you loose rows in the
+  # taxonomy table that do not appear in the top 11 table.
+  left_join(
+    p_bact_s2 %>% 
+      # Duplicate the family column, with the old name and as "topfamily"
+      transmute(Family, topfamily = Family),
+    by = 'Family'
+  ) %>%
+  # Set topfamily to 'Other' for those that were not among the top 11
+  replace_na(list('topfamily' = 'Other'))
+```
+
+```{r}
+asvs_bact_s2 %>%
+  left_join(taxonomy_bact_s2, by = 'seqid') %>%
+  group_by(sample, Family) %>% summarise(relab = sum(relab)) %>% ungroup() %>%
+  spread(sample, relab, fill = 0) %>%
+  write_tsv('asvs_bacteria_family_s2.tsv')
+```
+### merging triplicates
+```{r}
+# Group samples by the first part of their name (i.e., "Bact.1", "Bact.2", etc.)
+samples_bact_grouped <- samples_bact %>%
+  subset(Rock_age == "mid") %>%
+  filter(!area %in% c("orange", "yellow"))%>%
+  mutate(common_name = gsub("(\\.[0-9]+)\\..*", "\\1", name)) %>%
+  group_by(common_name) %>%
+  mutate(common_name = gsub("\\.", "", common_name)) %>%
+  ungroup()
+```
+
+```{r plot-top-family}
+asvs_bact_s2 %>%
+  inner_join(taxonomy_bact_s2, by = 'seqid') %>%
+  inner_join(samples_bact_grouped, by = "sample")%>%
+  group_by(topfamily, sample, name, common_name, area, Rock_age) %>% summarise(relab = sum(relab)/3) %>% ungroup() %>%
+  ggplot(aes(
+    x = fct_relevel(common_name, rev(c("Bact7" , "Bact8" ,  "Bact10"))), 
+    y = relab, 
+    fill = topfamily)) +
+  geom_col() +
+  scale_fill_manual(values = myColors) +
+  coord_flip() +
+  facet_grid(. ~ factor(Rock_age, levels = c("young", "mid", "old")), scales = "free_x", drop = TRUE)+
+  labs(title = "Top 20 Family-bacteria_Grouped_triplicates_sampling_2")+
+  ylab("Relative Abundance")+
+  xlab("Site")+
+  theme(
+    legend.position = 'bottom', legend.title = element_blank()
+    
+  )
+```
+
+```{r}
+ggsave("figures/AMD_Prevent_StackedBar_Top_20_family_bacteria_triplicates_s2_mid.pdf" , width = 18 , height = 13, units = "cm")
+```
+
+
+
+#order
+
+
+```{r assign-top10-order-to-taxonomy-bacteria}
+# Start by finding the top 20 order *on average* over the samples
+p_bact_mid <- asvs_bact_mid %>%
+  inner_join(taxonomy_mid, by = 'seqid') %>%
+  group_by(Order, sample) %>%
+  # Calculate the relative abundance of each order in each sample
+  summarise(relab = sum(relab)) %>%
+  # Calculate the *mean* relative abundance of each order over the samples
+  summarise(mean_relab = sum(relab)) %>%
+  ungroup() %>%
+  # Filter out non-assigned order
+  filter(!is.na(Order)) %>%
+  # Select the top 20
+  top_n(20, mean_relab)
+# Add this information to the taxonomy table as the column toporder
+taxonomy_bact_mid <- taxonomy_mid %>%
+  # Join in the top 10 table. *Important* with left join, otherwise you loose rows in the
+  # taxonomy table that do not appear in the top 20 table.
+  left_join(
+    p_bact_mid %>% 
+      # Duplicate the order column, with the old name and as "toporder"
+      transmute(Order, toporder = Order),
+    by = 'Order'
+  ) %>%
+  # Set toporder to 'Other' for those that were not among the top 11
+  replace_na(list('toporder' = 'Other'))
+```
+
+```{r}
+asvs_bact_mid %>%
+  left_join(taxonomy_bact_mid, by = 'seqid') %>%
+  group_by(sample, Order) %>% summarise(relab = sum(relab)) %>% ungroup() %>%
+  spread(sample, relab, fill = 0) %>%
+  write_tsv('asvs_bacteria_order_s1_mid.tsv')
+```
+### merging triplicates
+```{r}
+# Group samples by the first part of their name (i.e., "Bact.1", "Bact.2", etc.)
+samples_bact_grouped_mid <- samples_bact %>%
+  subset(Rock_age == "mid") %>%
+ mutate(common_name = gsub("(\\.[0-9]+)\\..*", "\\1", name)) %>%
+  group_by(sampling, common_name) %>%
+  mutate(common_name = gsub("\\.", "", common_name)) %>%
+  ungroup()
+```
+
+```{r plot-top-order}
+asvs_bact_mid %>%
+  inner_join(taxonomy_bact_mid, by = 'seqid') %>%
+  inner_join(samples_bact_grouped_mid, by = "sample") %>%
+  group_by(toporder, sample, common_name, sampling) %>% 
+  summarise(relab = sum(relab)/3) %>% 
+  ungroup() %>%
+  ggplot(aes(
+    x = fct_relevel(common_name, rev(c("Bact7" , "Bact8" ,  "Bact10"))), 
+    y = relab, 
+    fill = toporder)) +
+  geom_col() +
+  scale_fill_manual(values = myColors) +
+  coord_flip() +
+  facet_grid(. ~ factor(sampling, levels = c("1", "2")), scales = "free_x", drop = TRUE) +
+  labs(title = "Top 20 Order-bacteria_Grouped_triplicates_sampling_mid") +
+  ylab("Relative Abundance") +
+  xlab("Site") +
+  theme(
+    legend.position = 'bottom', legend.title = element_blank()
+  )
+```
+
+```{r}
+ggsave("figures/AMD_Prevent_StackedBar_Top_20_order_bacteria_triplicates_mid.pdf", width = 18 , height = 13, units = "cm")
+```
+
+
+```{r assign-top10-order-to-taxonomy-bacteria}
+# Start by finding the top 20 order *on average* over the samples
+p_bact_s1 <- asvs_bact_s1 %>%
+  inner_join(taxonomy, by = 'seqid') %>%
+  group_by(Order, sample) %>%
+  # Calculate the relative abundance of each order in each sample
+  summarise(relab = sum(relab)) %>%
+  # Calculate the *mean* relative abundance of each order over the samples
+  summarise(mean_relab = sum(relab)) %>%
+  ungroup() %>%
+  # Filter out non-assigned order
+  filter(!is.na(Order)) %>%
+  # Select the top 20
+  top_n(20, mean_relab)
+# Add this information to the taxonomy table as the column toporder
+taxonomy_bact_s1 <- taxonomy_sampling_1 %>%
+  # Join in the top 10 table. *Important* with left join, otherwise you loose rows in the
+  # taxonomy table that do not appear in the top 11 table.
+  left_join(
+    p_bact_s1 %>% 
+      # Duplicate the order column, with the old name and as "toporder"
+      transmute(Order, toporder = Order),
+    by = 'Order'
+  ) %>%
+  # Set toporder to 'Other' for those that were not among the top 11
+  replace_na(list('toporder' = 'Other'))
+```
+
+```{r}
+asvs_bact_s1 %>%
+  left_join(taxonomy_bact_s1, by = 'seqid') %>%
+  group_by(sample, Order) %>% summarise(relab = sum(relab)) %>% ungroup() %>%
+  spread(sample, relab, fill = 0) %>%
+  write_tsv('asvs_bacteria_order_s1.tsv')
+```
+### merging triplicates
+```{r}
+# Group samples by the first part of their name (i.e., "Bact.1", "Bact.2", etc.)
+samples_bact_grouped <- samples_bact %>%
+  subset(Rock_age == "mid") %>%
+  filter(!area %in% c("orange", "yellow"))%>%
+  mutate(common_name = gsub("(\\.[0-9]+)\\..*", "\\1", name)) %>%
+  group_by(common_name) %>%
+  mutate(common_name = gsub("\\.", "", common_name)) %>%
+  ungroup()
+```
+
+```{r plot-top-order}
+asvs_bact_s1 %>%
+  inner_join(taxonomy_bact_s1, by = 'seqid') %>%
+  inner_join(samples_bact_grouped, by = "sample")%>%
+  group_by(toporder, sample, name, common_name, area, Rock_age) %>% summarise(relab = sum(relab)/3) %>% ungroup() %>%
+  ggplot(aes(
+    x = fct_relevel(common_name, rev(c("Bact7" , "Bact8" ,  "Bact10"))), 
+    y = relab, 
+    fill = toporder)) +
+  geom_col() +
+  scale_fill_manual(values = myColors) +
+  coord_flip() +
+  facet_grid(. ~ factor(Rock_age, levels = c("young", "mid", "old")), scales = "free_x", drop = TRUE)+
+  labs(title = "Top 20 Order-bacteria_Grouped_triplicates_sampling_1")+
+  ylab("Relative Abundance")+
+  xlab("Site")+
+  theme(
+    legend.position = 'bottom', legend.title = element_blank()
+    
+  )
+```
+
+```{r}
+ggsave("figures/AMD_Prevent_StackedBar_Top_20_order_bacteria_triplicates_s1_mid.pdf", width = 18 , height = 13, units = "cm")
+```
+
+
+#sampling 2, facet_grid by area 1,2,3
+
+```{r assign-top10-order-to-taxonomy-bacteria}
+# Start by finding the top 20 order *on average* over the samples
+p_bact_s2 <- asvs_bact_s2 %>%
+  inner_join(taxonomy, by = 'seqid') %>%
+  group_by(Order, sample) %>%
+  # Calculate the relative abundance of each order in each sample
+  summarise(relab = sum(relab)) %>%
+  # Calculate the *mean* relative abundance of each order over the samples
+  summarise(mean_relab = sum(relab)) %>%
+  ungroup() %>%
+  # Filter out non-assigned order
+  filter(!is.na(Order)) %>%
+  # Select the top 20
+  top_n(20, mean_relab)
+# Add this information to the taxonomy table as the column toporder
+taxonomy_bact_s2 <- taxonomy_sampling_2 %>%
+  # Join in the top 10 table. *Important* with left join, otherwise you loose rows in the
+  # taxonomy table that do not appear in the top 11 table.
+  left_join(
+    p_bact_s2 %>% 
+      # Duplicate the order column, with the old name and as "toporder"
+      transmute(Order, toporder = Order),
+    by = 'Order'
+  ) %>%
+  # Set toporder to 'Other' for those that were not among the top 11
+  replace_na(list('toporder' = 'Other'))
+```
+
+```{r}
+asvs_bact_s2 %>%
+  left_join(taxonomy_bact_s2, by = 'seqid') %>%
+  group_by(sample, Order) %>% summarise(relab = sum(relab)) %>% ungroup() %>%
+  spread(sample, relab, fill = 0) %>%
+  write_tsv('asvs_bacteria_order_s2.tsv')
+```
+### merging triplicates
+```{r}
+# Group samples by the first part of their name (i.e., "Bact.1", "Bact.2", etc.)
+samples_bact_grouped <- samples_bact %>%
+  subset(Rock_age == "mid") %>%
+  filter(!area %in% c("orange", "yellow"))%>%
+  mutate(common_name = gsub("(\\.[0-9]+)\\..*", "\\1", name)) %>%
+  group_by(common_name) %>%
+  mutate(common_name = gsub("\\.", "", common_name)) %>%
+  ungroup()
+```
+
+```{r plot-top-order}
+asvs_bact_s2 %>%
+  inner_join(taxonomy_bact_s2, by = 'seqid') %>%
+  inner_join(samples_bact_grouped, by = "sample")%>%
+  group_by(toporder, sample, name, common_name, area, Rock_age) %>% summarise(relab = sum(relab)/3) %>% ungroup() %>%
+  ggplot(aes(
+    x = fct_relevel(common_name, rev(c("Bact7" , "Bact8" ,  "Bact10"))), 
+    y = relab, 
+    fill = toporder)) +
+  geom_col() +
+  scale_fill_manual(values = myColors) +
+  coord_flip() +
+  facet_grid(. ~ factor(Rock_age, levels = c("young", "mid", "old")), scales = "free_x", drop = TRUE)+
+  labs(title = "Top 20 Order-bacteria_Grouped_triplicates_sampling_2")+
+  ylab("Relative Abundance")+
+  xlab("Site")+
+  theme(
+    legend.position = 'bottom', legend.title = element_blank()
+    
+  )
+```
+
+```{r}
+ggsave("figures/AMD_Prevent_StackedBar_Top_20_order_bacteria_triplicates_s2_mid.pdf" , width = 18 , height = 13, units = "cm")
+```
+
+
+
+
+
+
+### RDA
+
+#reset the ASVS 
+
+
+```{r read-counts-data sampling 2}
+ASVs <- read_tsv("AMD_Prevent_sampling_2_ASV_table.tsv",
+  col_types = cols(.default = col_double(), seqid = col_character())) 
+ASVs <- ASVs[ , -c(29,30,33,46:78)]
+  
+ ASVs <- ASVs %>% gather(sample, count, 2:42) %>%
+  # Take away rows with zero count
+  filter(count > 0) %>%
+  # Take away samples with less than 500 observations (this is an arbitrary choice 
+  # to get rid of samples with very low sequencing depth). 
+    #due to low seq depth, samples with less than 500 obsv were not filtered
+  #group_by(sample) %>% 
+  #filter(sum(count) >= 500) %>% 
+  ungroup()
+```
+
+```{r read the metadata}
+# Read the sample data ("metadata")
+samples <- read_csv("AMD_Prevent_Metadata_sampling_1_and_2.csv", 
+  col_names = TRUE,
+  col_types = cols(.default = col_double(),
+    sample = col_character(),
+    sampling = col_character(),
+    name = col_character(), 
+    area = col_character(), 
+    Rock_age = col_character(),
+    domain = col_character(),
+    field_pH  = col_number(),
+    latitude_longitude = col_character(),
+    Rock_Sample_Name = col_character(),
+    As_coarse_fraction_mg_kg = col_number(),
+    As_fine_fraction_mg_kg = col_number(),
+    Ca_coarse_fraction_percent = col_number(),
+    Ca_fine_fraction_percent = col_number(),
+    Cd_coarse_fraction_mg_kg = col_number(),
+    Co_fine_fraction_percent = col_number(),
+    Co_coarse_fraction_percent = col_number(),
+    Cd_fine_fraction_mg_kg = col_number(),
+    Cu_coarse_fraction_mg_kg = col_number(),
+    Cu_fine_fraction_mg_kg = col_number(),
+    Fe_coarse_fraction_percent = col_number(),
+    Fe_fine_fraction_percent = col_number(),
+    Hg_coarse_fraction_mg_kg = col_number(),
+    Hg_fine_fraction_mg_kg = col_number(),
+    Na_coarse_fraction_percent = col_number(),
+    Na_fine_fraction_percent = col_number(),
+    Ni_coarse_fraction_mg_kg = col_number(),
+    Ni_fine_fraction_mg_kg = col_number(),
+    Pb_coarse_fraction_mg_kg = col_number(),
+    Pb_fine_fraction_mg_kg = col_number(),
+    S_coarse_fraction_percent = col_number(),
+    S_fine_fraction_percent = col_number(),
+    Sb_coarse_fraction_mg_kg = col_number(),
+    Sb_fine_fraction_mg_kg = col_number(),
+    Zn_coarse_fraction_mg_kg = col_number(),
+    Zn_fine_fraction_mg_kg = col_number(),
+    LOI_coarse_fraction_mg_kg = col_number(),
+    LOI_fine_fraction_mg_kg = col_number(),
+    Fe_S_molar_ratio_coarse_fraction = col_number(),
+    Fe_S_molar_ratio_fine_fraction = col_number())) %>% 
+  subset(domain == "bacteria")%>%
+  subset(sampling == "2")
+  
+# subset to remove rows with NA values
+samples<-samples[complete.cases(samples), ]
+samples <- samples[samples$sample != "P29902_1035", ]
+    # Subset the table to only contain the samples that are in the asvs table (which       was subset to only contain samples > 500 observations).
+  #samples <- samples <- semi_join(ASVs, by = 'sample')
+  
+
+```
+
+
+## Calculate hellinger
+
+We want to have a new column called `hel` in the asvs table but the ASVS table need to be renewed following use with the HEL RDA.
+
+```{r calc-hel, this takes a while}
+# This *adds a hel column* to the asvs table.
+# Note that the assignment to "asvs" is last and uses the -> assignment operator.  
+# Since all combinations of sample and seqid will now get a value, hel, the number of rows
+# increases quite a lot.
+asvs <- ASVs %>%
+  # Make the table wide with samples as columns
+  spread(sample, count, fill = 0) %>%
+  # Move the seqid to rowname; this requires a data.frame()
+  data.frame() %>% tibble::column_to_rownames('seqid')%>%
+  # Replace zeroes with probabilities (pseudocounts) (I needed a slightly lower delta than default
+  # not to get negative values) thus CZM in original script. what about geometric bayseian multiplicative(GBM)
+   cmultRepl(method = 'CZM', delta = 0.5, output = 'p-counts')%>%
+  # Calculate the hel
+  decostand(method = "hellinger") %>%
+  data.frame() %>%
+  tibble::rownames_to_column('sample')%>%
+  gather(seqid, hel, 2:ncol(.)) %>%
+  # Get rid of 'X' that sometimes precedes the seqid and join back with original table
+  mutate(seqid = sub('^X', '', seqid))
+   # Set count to 0 if it's NA
+  #replace_na(list(count = 0))
+
+  colnames(asvs)[2] <- "asv"
+  colnames(asvs)[1] <- "seqid"
+  colnames(asvs)[2] <- "sample"
+
+#asvs <- asvs %>% left_join(ASVs, by = c('sample', 'seqid')) %>%
+  #replace_na(list(count = 0))
+```
+
+
+
+```{r calc-pca}
+asvs_pca<-asvs %>% 
+  # Standard Vegan transformation: Turn table with with samples as *rows*
+  dplyr::select(seqid, sample,  hel) %>%
+  spread(seqid, hel) %>%
+  # Turn into a numeric matrix
+  tibble::column_to_rownames('sample') %>% as.matrix() 
+asvs_pca[is.nan(asvs_pca)] <- 0
+  # And call Vegan's rda function that will just do pca unless you give it a 
+  # a second argument (constraining matrix)
+ asvs_pca %>% vegan::rda() -> pca
+```
+
+What's returned by the `rda` funtion is a list object that can be plotted with the base `plot`
+function, but we can also pick out the necessary parts to make a PCA *biplot* of samples and ASVs
+using `ggplot2`.
+
+```{r pca-biplot, fig.height = 6, fig.cap = 'PCA of the samples. Coloured circles are the samples, and black dots the ASVs positions in the PCA coordinate system.'}
+pca.samples <- pca$CA$u %>% data.frame() %>% tibble::rownames_to_column('sample')
+pca.asvs    <- pca$CA$v %>% data.frame() %>% tibble::rownames_to_column('seqid')
+pca.eigs    <- pca$CA$eig %>% data.frame() %>% tibble::rownames_to_column('pc') 
+  colnames(pca.eigs)[2] <- "eigval" 
+pca.eigs <- pca.eigs %>% mutate(propexpl = eigval/sum(eigval))
+# We use the pca.samples table as the "main" table when calling ggplot.
+# Let's first join it with the samples table so we can use some metadata
+# for colouring.
+pca.samples %>%
+  inner_join(samples, by = 'sample')%>%
+  ggplot(aes(x = PC1, y = PC2)) +
+    # Plot the ASVs *behind* the samples, i.e. first
+    geom_point(data = pca.asvs, size = .1) +
+    # Points for samples, coloured by site names, shape by zone
+    geom_point(aes(colour = Rock_age , shape = Rock_age)) +
+  geom_text_repel(aes(label = Rock_age, element_text = 5),
+                  max.overlaps = Inf,
+                  min.segment.length = 0,
+                  box.padding   = 0.35,
+                  point.padding = 0.5,
+                  segment.color = 'grey50') +
+    scale_fill_manual(values = myColors) +
+    xlab(sprintf("PC1 (%2.1f%% explained)", pca.eigs[1,3] * 100)) +
+    ylab(sprintf("PC2 (%2.1f%% explained)", pca.eigs[2,3] * 100)) 
+```
+
+
+## Proper RDA with sample data, using HEL data
+
+##variables
+#Rock_age + domain + field_pH + latitude_longitude + Rock_Sample_Name + As_coarse_fraction_mg_kg + As_fine_fraction_mg_kg + Ca_coarse_fraction_percent + Ca_fine_fraction_percent + Cd_coarse_fraction_mg_kg + Cd_fine_fraction_mg_kg + Cu_coarse_fraction_mg_kg + Cu_fine_fraction_mg_kg + Fe_coarse_fraction_percent + Fe_fine_fraction_percent + Hg_coarse_fraction_mg_kg + Hg_fine_fraction_mg_kg + Na_coarse_fraction_percent + Na_fine_fraction_percent + Ni_coarse_fraction_mg_kg + Ni_fine_fraction_mg_kg + Pb_coarse_fraction_mg_kg + Pb_fine_fraction_mg_kg + S_coarse_fraction_percent + S_fine_fraction_percent + Sb_coarse_fraction_mg_kg + Sb_fine_fraction_mg_kg + Zn_coarse_fraction_mg_kg + Zn_fine_fraction_mg_kg + LOI_coarse_fraction_mg_kg + LOI_fine_fraction_mg_kg + Fe_S_molar_ratio_coarse_fraction + Fe_S_molar_ratio_fine_fraction
+
+Below, I'm selecting three variables from the metadata, average soil relative humidity, average soil
+temperature (both continuous) and vegetation (categorical, i.e. yes or no).
+#+ As_coarse_fraction_mg_kg + As_fine_fraction_mg_kg + Ca_coarse_fraction_percent + Ca_fine_fraction_percent + LOI_fine_fraction_mg_kg + Fe_S_molar_ratio_coarse_fraction + Fe_S_molar_ratio_fine_fraction
+
+```{r calc-rda-2vars}
+# Create a matrix object; we need it named, can't generate one on "the fly"
+asv_matrix <- asvs %>% 
+  # Standard Vegan transformation: Turn table with with samples as *rows*
+  dplyr::select(seqid, sample,  hel) %>%
+  spread(seqid, hel) %>%
+  # Turn into a numeric matrix
+  tibble::column_to_rownames('sample') %>% as.matrix()
+asv_matrix[is.nan(asv_matrix)] <- 0
+
+# Here's the call to the rda function with a formula as the first argument
+#(removed)
+vegan::rda(
+  asv_matrix ~ field_pH + Mn_coarse_fraction_mg_kg + K_coarse_fraction_percent + Ba_coarse_fraction_mg_kg + Ba_fine_fraction_mg_kg + Na_coarse_fraction_percent + Sc_fine_fraction_mg_kg + Mg_coarse_fraction_percent + Fe_S_molar_ratio_coarse_fraction + P_coarse_fraction_mg_kg + Sb_coarse_fraction_mg_kg + As_coarse_fraction_mg_kg + Mo_fine_fraction_mg_kg + Co_coarse_fraction_mg_kg, data = samples %>%
+    semi_join(asvs, by = 'sample') %>%
+    tibble::column_to_rownames('sample')) -> rda
+
+```
+
+The results of an RDA analysis can be plotted as a *triplot* with arrows pointing in the direction
+of the environmental parameters (`r figr('rda-triplot', T, type = 'Figure')`). (Usually categorical
+variables are plotted as points and not as arrows as in my figure.)
+
+```{r rda-triplot, fig.height = 6, fig.cap = 'Redundancy analysis (RDA). Samples are plotted together with vectors indicating the influence of the three factors included in the analysis. *Note 1*: Many samples got the same coordinates, and are hence plotted on top of each other. *Note 2*: that the lengths of the factor vectors were divided by four to fit inside the plot. They should hence only be interpreted as directions.'}
+# I need to collect some temporary data sets for the plot
+# This one will contain the proportions explained which we get by dividing the
+# eigenvalue of each component with the sum of eigenvalues for all components.
+p <- c(rda$CCA$eig, rda$CA$eig)/sum(c(rda$CCA$eig, rda$CA$eig))
+
+# This one is collecting the coordinates for arrows that will depict how the 
+# factors in our model point in the coordinate
+a <- rda$CCA$biplot %>% data.frame() %>% tibble::rownames_to_column('factor')
+
+rda$CCA$u %>% data.frame() %>% tibble::rownames_to_column('sample') %>%
+  inner_join(samples, by = 'sample') %>%
+  ggplot(aes(x = RDA1, y = RDA2)) +
+     geom_point(aes(colour = Rock_age , shape = Rock_age)) +
+  #geom_text_repel(aes(label = N_to_S_Site_names, element_text = 5),
+   #               max.overlaps = Inf,
+    #              min.segment.length = 0,
+     #             box.padding   = 0.35,
+      #            point.padding = 0.5,
+       #           segment.color = 'grey50') +
+    scale_fill_manual(values = myColors) +
+    xlab(sprintf("RDA1 (%2.1f%% explained)", p[[1]] * 100)) +
+    ylab(sprintf("RDA2 (%2.1f%% explained)", p[[2]] * 100)) +
+    
+    geom_segment(
+      data = a, mapping = aes(xend = RDA1/4, yend = RDA2/4), 
+      x = 0, y = 0, arrow = arrow()
+    ) +
+    # Print the names of factors halfway along the arrows
+    geom_text(
+      data = a, mapping = aes(x = RDA1/4, y = RDA2/4, label = factor), 
+      size = 3) +
+  theme(axis.title.y = element_text(angle = 90))
+  
+```
+```{r}
+ggsave("figures/Figure_2_RDA_HEL_S2_ENv-coarse_fractions.pdf", width = 18, height = 10, units = "cm")
+```
+
