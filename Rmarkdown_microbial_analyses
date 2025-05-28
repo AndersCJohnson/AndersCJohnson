@@ -1,0 +1,5107 @@
+
+---
+title: "Uranium_project for Magnus"
+author: "anders"
+date: "2024-09-27"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+
+
+#install necessary packages
+```{r}
+#install.packages("ggplot2")
+```
+
+## Load required libraries
+```{r libraries, message=F, cache = FALSE}
+
+library(readr)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(kfigr)
+library(knitr)
+# Packages needed to calculate clr
+library(zCompositions)
+library(ALDEx2)
+library(CoDaSeq)
+library(ggrepel)
+library(phyloseq)
+library(asbio)
+library(vegan)
+library(gridExtra)
+library(tidyverse)
+library(ggpubr)
+library(agricolae)
+library(zinbwave)
+library(DESeq2)
+library(apeglm)
+library(scran)
+library(cowplot)
+library(VennDiagram)
+library(pscl)
+library(MASS)
+library(dbplyr)
+library(gridExtra)
+library(grid)
+library(decontam)
+```
+
+
+# set the color palette. this color palette is useful because its colors are easily distinguishable from one another and prohibits the rainboweffect from happening
+```{r set the color palette}
+myColors <- c("#89C5DA", "#DA5724", "#74D944", "#CE50CA", "#3F4921", "#C0717C", "#CBD588", "#5F7FC7", "#673770", "#D3D93E", "#38333E", "#508578", "#D7C1B1", "#689030", "#AD6F3B", "#CD9BCD", "#D14285", "#6DDE88", "#652926", "#7FDCC0", "#C84248", "#8569D5", "#5E738F", "#D1A33D", "#8A7C64", "#599861")
+```
+
+
+##set the working directory
+```{r set working directory}
+setwd("your/file/pathway")
+```
+
+
+## Read data files
+
+We start by reading in the data files: ASVs (counts), sample data ("metadata") and the taxonomy.
+
+```{r, brings in the raw data}
+ASVs_raw <- read_tsv("ASV_table.tsv",
+  col_types = cols(.default = col_double(), seqid = col_character()))
+```
+
+
+
+```{r read-counts-data }
+# Read the ASV table and turn it long without zeroes
+ASVs <- read_tsv("ASV_table.tsv",
+  col_types = cols(.default = col_double(), seqid = col_character())) %>%
+  gather(sample, count, 2:46) %>%
+  # Take away rows with zero count
+  filter(count > 0) %>%
+  # Take away samples with less than 500 observations (this is an arbitrary choice 
+  # to get rid of samples with very low sequencing depth). 
+    #due to low seq depth, samples with less than 500 obsv were not filtered
+  #group_by(sample) %>% 
+  #filter(sum(count) >= 500) %>% 
+  ungroup()
+```
+
+```{r read the taxonomy data}
+# Read the taxonomy table
+taxonomy_raw <- read_tsv("ASV_tax_species.tsv", col_types = cols("seqid" = col_character(), "Domain" = col_character(), "Kingdom"  = col_character(), "Class" = col_character(), "Order" = col_character(), "Family" = col_character(), "Genus" = col_character(), "Species" = col_character(), "confidence" = col_double(), "sequence" = col_character())) %>% 
+  # rename "uncultured" to N/A
+  mutate(across(c(Class, Order, Family, Genus, Species), ~na_if(., "uncultured"))) %>%
+  mutate(across(c(Class, Order, Family, Genus, Species), ~na_if(., "uncultured bacterium"))) %>%
+  mutate(across(c(Class, Order, Family, Genus, Species), ~na_if(., "uncultured organism"))) %>% 
+  mutate(across(c(Class, Order, Family, Genus, Species), ~na_if(., "uncultured Actinomycetales bacterium")))
+  
+  # Rename Feature ID to seqid, the name in the ASV table
+   #rename(seqid = ASV_ID)
+taxonomy <- taxonomy_raw
+```
+
+```{r read the metadata}
+# Read the sample data ("metadata")
+samples <- read_csv("uranium_metadata.csv", 
+  col_names = TRUE,
+  col_types = cols(.default = col_double(),
+    sample = col_character(),               
+    Your_sample_name = col_character(),
+    year = col_character(),
+    experiment = col_character(),
+    replicates = col_character(),
+    DNA_concentration = col_number(),
+    sample_type = col_character(),
+    incubation = col_character(),
+    groups = col_character(),
+    common_name = col_character(),
+    fig_name = col_character()))  %>%  
+    #test = col_character(), #for character type columns
+    #Fe2_mgL = col_number(), #for numbers in columns
+    #replicates = col_factor(), #for factor data columns
+   
+    
+  
+  # Subset the table to only contain the samples that are in the asvs table (which was 
+  # subset to only contain samples > 500 observations).
+  semi_join(ASVs, by = 'sample')
+# subset to remove rows with NA values
+#samples<-samples[complete.cases(samples), ]
+
+metadata <- samples
+```
+
+
+
+#subsetting
+```{r}
+samples2021 <- samples %>%
+  subset(year == "2021")
+
+samples2022 <- samples %>%
+  subset(year == "2022")
+
+samples2023 <- samples %>%
+  subset(year == "2023")
+
+
+ASVs_raw_2021 <- ASVs_raw %>%
+  dplyr::select( c( seqid, "P25307_1001_S1" , "P25307_1002_S2" , "P25307_1003_S3" , "P25307_1004_S4" , "P25307_1005_S5" , "P25307_1006_S6" , "P25307_1007_S7" , "P25307_1008_S8" , "P25307_1009_S9" , "P25307_1010_S10" , "P25307_1013_S13" , "P25307_1014_S14" , "P25307_1015_S15" , "P25307_1016_S16" , "P25307_1017_S17" , "P25307_1018_S18" , "P25307_1021_S21" , "P25307_1064_S64" , "P25307_1065_S65"))
+
+
+ASVs_raw_2022 <- ASVs_raw %>%
+  dplyr::select( c(seqid, "P30414_1055_S55" , "P30414_1056_S56" , "P30414_1057_S57" , "P30414_1058_S58" , "P30414_1059_S59" , "P30414_1060_S60" , "P30414_1061_S61" , "P30414_1066_S66" , "P30414_1067_S67" , "P30414_1076_S76" , "P30414_1077_S77" , "P30414_1078_S78" , "P30414_1079_S79" , "P30414_1080_S80"))
+
+
+
+ASVs_raw_2023 <- ASVs_raw %>% 
+  dplyr::select( c( seqid, "P30414_1062_S62" , "P30414_1063_S63" , "P30414_1064_S64" , "P30414_1065_S65" , "P30414_1068_S68" , "P30414_1069_S69" , "P30414_1070_S70" , "P30414_1071_S71" , "P30414_1072_S72" , "P30414_1073_S73" , "P30414_1074_S74" , "P30414_1075_S75"))
+
+
+```
+
+
+
+```{r}
+sequencing_depth <- read_tsv("ASV_table.tsv", col_names = TRUE,
+  col_types = cols(.default = col_double(), seqid = col_character()))
+
+asvs<-sequencing_depth%>%
+  gather(sample, count, 2:ncol(.)) %>% 
+  filter(count > 0) %>%
+  group_by(sample) %>% 
+  mutate(relab = count/sum(count)) %>% 
+  filter(n() > 19) %>% 
+  ungroup()
+
+
+sequencing_depth %>%
+  gather(sample, count, -1)%>%
+  group_by(seqid)%>%
+  #filter(count > 0) %>% 
+  ungroup() %>%
+  mutate(count = as.integer(count))%>%
+  # Add metadata
+ inner_join(samples, by = 'sample')%>%
+  # Relative abundance, grouped first by sample name, and then next by rep(sampling replicate identifier)
+  group_by(sample) %>%
+  #group_by(site, zone)%>% #do at sample level first 
+  mutate(relab = count/sum(count)) %>% ungroup() -> sequencing_depth_seqtab
+```
+
+```{r, rarefaction}
+sequencing_depth_seqtab %>%
+  dplyr::select (seqid, sample, count) %>%
+  spread(seqid, count, fill = 0) %>%
+  column_to_rownames("sample")%>%
+  rarecurve(sample= 100, step = 100, xlab = "Sequencing Depth", ylab = "# of ASVs")
+```
+
+
+```{r, rarefaction}
+sequencing_depth_seqtab %>%
+  subset(groups == "Inc45d") %>%
+  dplyr::select (seqid, sample, count) %>%
+  spread(seqid, count, fill = 0) %>%
+  column_to_rownames("sample")%>%
+  rarecurve(sample= 100, step = 100, xlab = "Sequencing Depth", ylab = "# of ASVs")
+```
+
+
+```{r, rarefaction}
+sequencing_depth_seqtab %>%
+  subset(groups == "boreZtp") %>%
+  dplyr::select (seqid, sample, count) %>%
+  spread(seqid, count, fill = 0) %>%
+  column_to_rownames("sample")%>%
+  rarecurve(sample= 100, step = 100, xlab = "Sequencing Depth", ylab = "# of ASVs")
+```
+
+
+
+```{r, rarefaction}
+sequencing_depth_seqtab %>%
+  subset(groups == "control") %>%
+  dplyr::select (seqid, sample, count) %>%
+  spread(seqid, count, fill = 0) %>%
+  column_to_rownames("sample")%>%
+  rarecurve(sample= 100, step = 100, xlab = "Sequencing Depth", ylab = "# of ASVs")
+```
+
+#Export the plot
+```{r}
+### manually save with right-click "save as"
+```
+
+
+
+
+
+
+###top20 tables
+
+#bacteria
+
+
+```{r}
+# Read in metadata file
+samples <- samples
+
+
+# Read in ASV table
+sequencing_depth <- ASVs_raw
+
+
+
+asvs<-sequencing_depth%>%
+  gather(sample, count, 2:ncol(.)) %>% 
+  filter(count > 0) %>%
+  group_by(sample) %>% 
+  mutate(relab = count/sum(count)) %>% 
+  filter(n() > 19) %>% 
+  ungroup()
+
+
+sequencing_depth %>%
+  gather(sample, count, -1)%>%
+  group_by(seqid)%>%
+  #filter(count > 0) %>% 
+  ungroup() %>%
+  mutate(count = as.integer(count))%>%
+  # Add metadata
+ inner_join(samples, by = 'sample')%>%
+  # Relative abundance, grouped first by sample name, and then next by rep(sampling replicate identifier)
+  group_by(sample) %>%
+  #group_by(site, zone)%>% #do at sample level first 
+  mutate(relab = count/sum(count)) %>% ungroup() -> sequencing_depth_seqtab
+
+
+```
+
+
+```{r}
+seqtab <- sequencing_depth_seqtab
+```
+
+
+
+
+###looks at the top 20 genera, 
+```{r, select top 20 most abundant genera all}
+# Select the 20 most abundant genera
+seqtab %>%
+  inner_join(taxonomy, by = 'seqid')%>%
+  group_by(Genus, sample)%>%
+  # Calculate the relative abundance of each genus in each sample
+  summarise(relab = sum(relab))%>%
+  # Calculate the mean relative abundance of each genus over the samples
+  summarise(mean_relab = sum(relab))%>%
+  ungroup() %>%
+  # Filter out non-assigned genera
+  filter(!is.na(Genus))%>%
+  # Select the top 20
+  top_n(20, mean_relab) -> t20_genus
+```
+##print the top20 genera table
+```{r print top20 genera table}
+t20_genus%>%
+ arrange(desc(mean_relab))->Uranium_magnus_t20_genus_order_decending
+
+pdf("Figures/Uranium_magnus_genera_top_20_relab_table_all.pdf", height=8, width=8)
+title <- "Overall, Top 20 Genera, Relative Abundance, All"
+
+grid::grid.newpage()
+grid::grid.text(title,x = (.5), y = (0.9))
+grid.table(Uranium_magnus_t20_genus_order_decending) 
+dev.off()
+```
+#start splitting the data
+
+#repeat the above with subsets dplyr::select()
+
+
+
+
+
+
+```{r assign-top10-genera-to-taxonomy}
+# Start by finding the top 11 genera *on average* over the samples
+p <- asvs %>%
+  inner_join(taxonomy, by = 'seqid') %>%
+  group_by(Genus, sample) %>%
+  # Calculate the relative abundance of each genera in each sample
+  summarise(relab = sum(relab)) %>%
+  # Calculate the *mean* relative abundance of each genera over the samples
+  summarise(mean_relab = sum(relab)) %>%
+  ungroup() %>%
+  # Filter out non-assigned genera
+  filter(!is.na(Genus)) %>%
+  # Select the top 11
+  top_n(20, mean_relab)
+# Add this information to the taxonomy table as the column topgenera
+taxonomy <- taxonomy %>%
+  # Join in the top 10 table. *Important* with left join, otherwise you loose rows in the
+  # taxonomy table that do not appear in the top 11 table.
+  left_join(
+    p %>% 
+      # Duplicate the genera column, with the old name and as "topgenera"
+      transmute(Genus, topgenus = Genus),
+    by = 'Genus'
+  ) %>%
+  # Set topgenus to 'Other' for those that were not among the top 11
+  replace_na(list('topgenus' = 'Other'))
+```
+
+```{r}
+asvs %>%
+  left_join(taxonomy, by = 'seqid') %>%
+  group_by(sample, Genus) %>% summarise(relab = sum(relab)) %>% ungroup() %>%
+  spread(sample, relab, fill = 0) %>%
+  write_csv('asvs.tsv')
+```
+
+
+
+
+
+```{r plot-top-genus}
+asvs %>%
+  inner_join(taxonomy, by = 'seqid') %>%
+  inner_join(samples, by = "sample")%>%
+  group_by(topgenus, sample, Your_sample_name, year) %>% summarise(relab = sum(relab)) %>% ungroup() %>%
+  ggplot(aes(
+    x = fct_relevel(Your_sample_name),
+    y = relab, 
+    fill = fct_relevel(topgenus, "Other" , after = Inf))) +
+  geom_col() +
+    #facet_grid(. ~ factor(year, levels = c("2021", "2022", "2023")), scales = "free_x", drop = TRUE) + #this line of code splits the figure by the year levels
+  scale_fill_manual(values = myColors) +
+  coord_flip() +
+  labs(title = "Top 20 Genus-triplicates")+
+  ylab("Relative Abundance")+
+  xlab("Your_sample_name")+
+  theme(
+   legend.position = 'bottom', legend.title = element_blank()) +
+  guides(fill = guide_legend(reverse = TRUE))
+    
+```
+
+```{r}
+ggsave("Figures/Uranium_magnus_StackedBar_Top_20_genus.pdf",scale = 2, width = 18, height = 13, units = "cm")
+```
+
+
+
+
+
+
+
+
+
+
+#Decontam of ASVS using the combined method of the decontam package
+
+
+
+```{r, decontam}
+ASVs_raw <- read_tsv("ASV_table.tsv", 
+  col_types = cols(.default = col_double(), seqid = col_character()))
+ASVs_raw <- column_to_rownames(ASVs_raw, var = "seqid")
+
+#define if sample is a control
+neg_controls <- metadata$sample_type == "neg"
+
+#run decontamination model 
+
+#frequency based, if lacking negative controls but have extracted DNA concentrations
+#contaminants_freq <- isContaminant(t(ASVs_raw), method = "frequency", conc = metadata$DNA_concentration, neg = neg_controls)
+
+#prevelance based, if have negative controls, but lack DNA concentrations
+#contaminants_prev <- isContaminant(t(ASVs_raw), method = "prevalence", conc = metadata$DNA_concentration, neg = neg_controls)
+
+#combined freq and prev, use if having both negative controls and DNA concentrations
+
+contaminants_comb <- isContaminant(t(ASVs_raw), method = "combined", conc = metadata$DNA_concentration, neg = neg_controls)
+
+
+clean_counts_table <- ASVs_raw[!contaminants_comb$contaminant, ]
+write.csv(clean_counts_table, "Figures/clean_counts.csv", row.names = TRUE)
+
+clean_counts_table <- clean_counts_table %>% rownames_to_column("seqid")
+
+ASVs_decontam <- clean_counts_table
+
+contams_list <- contaminants_comb %>% 
+  subset(contaminant == "TRUE") %>%
+  rownames_to_column("seqid") %>%
+  merge(taxonomy, by = "seqid")
+write.csv(contams_list, "Figures/contaminants_list_method=DecontamCombined.csv")
+```
+
+
+
+
+
+#Family
+
+
+#bore Zero time point
+
+
+
+
+```{r}
+boreZtp_metadata <- metadata %>%
+  subset(groups == "boreZtp")
+
+
+boreZtp_ASVS_subset <- ASVs_decontam %>%
+  dplyr::select(c(seqid,
+            P25307_1010_S10, 
+            P25307_1021_S21,
+            P25307_1064_S64,
+            P25307_1065_S65,
+            P30414_1076_S76,
+            P30414_1077_S77,
+            P30414_1078_S78,
+            P30414_1079_S79,
+            P30414_1080_S80,
+            P30414_1062_S62,
+            P30414_1063_S63,
+            P30414_1064_S64,
+            P30414_1065_S65))
+
+
+
+boreZtp_asvs <-boreZtp_ASVS_subset%>%
+  gather(sample, count, 2:ncol(.)) %>% 
+  #filter(count > 0) %>%
+  group_by(sample) %>% 
+  mutate(relab = count/sum(count)) %>% 
+  filter(n() > 0) %>% 
+  ungroup()
+
+
+
+```
+
+
+
+
+
+
+```{r assign-top10-family-to-taxonomy}
+# Start by finding the top 11 family *on average* over the samples
+p <- boreZtp_asvs %>%
+  inner_join(taxonomy, by = 'seqid') %>%
+  group_by(Family, sample) %>%
+  # Calculate the relative abundance of each family in each sample
+  summarise(relab = sum(relab)) %>%
+  # Calculate the *mean* relative abundance of each family over the samples
+  summarise(mean_relab = sum(relab)) %>%
+  ungroup() %>%
+  # Filter out non-assigned family
+  filter(!is.na(Family)) %>%
+  # Select the top 11
+  top_n(20, mean_relab)
+# Add this information to the taxonomy table as the column topfamily
+taxonomy <- taxonomy_raw %>%
+  # Join in the top 10 table. *Important* with left join, otherwise you loose rows in the
+  # taxonomy table that do not appear in the top 11 table.
+  left_join(
+    p %>% 
+      # Duplicate the family column, with the old name and as "topfamily"
+      transmute(Family, topfamily = Family),
+    by = 'Family'
+  ) %>%
+  # Set topfamily to 'Other' for those that were not among the top 11
+  replace_na(list('topfamily' = 'Other'))
+```
+
+```{r}
+boreZtp_asvs %>%
+  left_join(taxonomy, by = 'seqid') %>%
+  group_by(sample, Family) %>% summarise(relab = sum(relab)) %>% ungroup() %>%
+  spread(sample, relab, fill = 0) %>%
+  write_csv('Figures/boreZtp_asvs_topfamily.csv')
+```
+   
+
+```{r plot-top-family}
+boreZtp_asvs %>%
+  inner_join(taxonomy, by = 'seqid') %>%
+  inner_join(boreZtp_metadata, by = "sample")%>%
+  group_by(topfamily, sample, Your_sample_name, year, experiment,common_name, fig_name) %>%
+  summarise(relab = sum(relab)) %>% 
+  ungroup() %>%
+  group_by(common_name) %>%
+  mutate(relab_adjusted = case_when(
+    common_name == "Uproject_KFM02A_DNA" ~ relab / 4,
+    common_name == "U-proj KFM02A 6/6/2022 DNA" ~ relab / 5,
+    common_name == "U-proj KFM02A 21/2-2023 DNA" ~ relab / 4
+  )) %>%
+  ggplot(aes(
+    x = fct_relevel(fig_name,rev(c( "ZTP 2021" , "ZTP 2022" , "ZTP 2023"))),
+    y = relab_adjusted, 
+    fill = fct_relevel(topfamily, "Other" , after = Inf))) +
+  geom_col() +
+  #facet_grid(. ~ factor(year, levels = c("2021", "2022", "2023")), scales = "free_x", drop = TRUE) + #this line of code splits the figure by the year levels
+  scale_fill_manual(values = myColors) +
+  coord_flip() +
+  labs(title = "Top 20 Family BoreZtp")+
+  ylab("Relative Abundance")+
+  xlab("Your_sample_name")+
+  theme(
+   legend.position = 'bottom', legend.title = element_blank()) +
+  guides(fill = guide_legend(reverse = TRUE))
+    
+```
+
+```{r}
+ggsave("Figures/Uranium_magnus_StackedBar_Top_20_family_boreZtp_averages_decontam.pdf",scale = 2, width = 18, height = 13, units = "cm")
+```
+
+
+```{r}
+# Merge boreZtp_asvs with taxonomy and metadata
+final_table <- boreZtp_asvs %>%
+  inner_join(taxonomy, by = "seqid") %>%
+  inner_join(boreZtp_metadata, by = "sample") %>%
+  group_by(common_name, Family) %>%
+  summarise(total_count = sum(count), .groups = "drop") %>%
+  ungroup()
+
+# Identify the top 20 families based on total counts across all common_name
+top_families <- final_table %>%
+  group_by(Family) %>%
+  summarise(total_family_count = sum(total_count), .groups = "drop") %>%
+  arrange(desc(total_family_count)) %>%
+  slice_head(n = 20) %>%
+  pull(Family)
+
+# Categorize families as "Top 20" or "Other"
+final_table <- final_table %>%
+  mutate(Family = if_else(Family %in% top_families, Family, "Other"),
+         Family = if_else(is.na(Family), "Other", Family)) # Combine NA into "Other"
+
+# Summarize again to combine all "Other" counts
+final_table <- final_table %>%
+  group_by(common_name, Family) %>%
+  summarise(total_count = sum(total_count), .groups = "drop")
+
+# Calculate relative abundances for each family within each common_name
+final_table_relabs <- final_table %>%
+  group_by(common_name) %>%
+  mutate(relative_abundance = total_count / sum(total_count)) %>%
+  ungroup()
+
+# Reshape into wide format for absolute counts: row names = common_name, column names = Family, values = total counts
+wide_table <- final_table %>%
+  pivot_wider(names_from = Family, values_from = total_count, values_fill = 0)
+
+# Reshape into wide format for relative abundances: row names = common_name, column names = Family, values = relative abundances
+wide_table_relabs <- final_table_relabs %>%
+  dplyr::select(common_name, Family, relative_abundance) %>%
+  pivot_wider(names_from = Family, values_from = relative_abundance, values_fill = 0)
+
+# Save outputs for inspection
+write_csv(wide_table, "Figures/boreZtp_commonname_family_asv_counts.csv")
+write_csv(wide_table_relabs, "Figures/boreZtp_commonname_family_relative_abundances.csv")
+
+# Print previews
+print(wide_table)
+print(wide_table_relabs)
+
+```
+
+#incubation 45 days  time point
+#Family
+
+
+
+
+
+```{r}
+Inc45d_metadata <- metadata %>%
+  subset(groups == "Inc45d")
+
+
+Inc45d_ASVS_subset <- ASVs_decontam %>%
+  dplyr::select(c(seqid,
+            P30414_1068_S68,
+            P30414_1069_S69,
+            P30414_1070_S70,
+            P30414_1071_S71,
+            P30414_1072_S72,
+            P30414_1073_S73,
+            P30414_1074_S74,
+            P30414_1075_S75,
+            P30414_1055_S55,
+            P30414_1056_S56,
+            P30414_1057_S57,
+            P30414_1058_S58,
+            P30414_1066_S66,
+            P30414_1067_S67,
+            P25307_1002_S2,
+            P25307_1005_S5,
+            P25307_1008_S8,
+            P25307_1001_S1,
+            P25307_1004_S4,
+            P25307_1007_S7,
+            P25307_1003_S3,
+            P25307_1006_S6,
+            P25307_1009_S9,
+            P30414_1059_S59))
+
+Inc45d_asvs <-Inc45d_ASVS_subset%>%
+  gather(sample, count, 2:ncol(.)) %>% 
+  #filter(count > 0) %>%
+  group_by(sample) %>%
+  mutate(total_count = sum(count)) %>%
+  mutate(relab = count / total_count) %>%
+  filter(n() > 0) %>% 
+  ungroup()
+
+
+
+```
+
+
+
+```{r assign-top10-family-to-taxonomy}
+# Start by finding the top 11 family *on average* over the samples
+p <- Inc45d_asvs %>%
+  inner_join(taxonomy, by = 'seqid') %>%
+  group_by(Family, sample) %>%
+  # Calculate the relative abundance of each family in each sample
+  summarise(relab = sum(relab)) %>%
+  # Calculate the *mean* relative abundance of each family over the samples
+  summarise(mean_relab = mean(relab)) %>%
+  ungroup() %>%
+  # Filter out non-assigned family
+  filter(!is.na(Family)) %>%
+  # Select the top 11
+  top_n(20, mean_relab)
+# Add this information to the taxonomy table as the column topfamily
+taxonomy <- taxonomy_raw %>%
+  # Join in the top 10 table. *Important* with left join, otherwise you loose rows in the
+  # taxonomy table that do not appear in the top 11 table.
+  left_join(
+    p %>% 
+      # Duplicate the family column, with the old name and as "topfamily"
+      transmute(Family, topfamily = Family),
+    by = 'Family'
+  ) %>%
+  # Set topfamily to 'Other' for those that were not among the top 11
+  replace_na(list('topfamily' = 'Other'))
+```
+
+```{r}
+Inc45d_asvs %>%
+  left_join(taxonomy, by = 'seqid') %>%
+  group_by(sample, Family) %>% summarise(relab = sum(relab)) %>% ungroup() %>%
+  spread(sample, relab, fill = 0) %>%
+  write_csv('Figures/Inc45d_asvs_topfamily.csv')
+```
+
+
+```{r plot-top-family}
+Inc45d_asvs %>%
+  inner_join(taxonomy, by = 'seqid') %>%
+  inner_join(Inc45d_metadata, by = "sample")%>%
+  group_by(topfamily, sample, common_name, Your_sample_name, year, experiment, fig_name) %>% 
+  summarise(total_relab = sum(relab)) %>% 
+  ungroup() %>%
+  group_by(common_name) %>%
+  mutate(relab_adjusted = case_when(
+    common_name == "U-proj end sampling Blank 1 filtered" ~ total_relab / 2,
+    common_name == "U-proj end sampling filtered + Acetate" ~ total_relab / 2,
+    common_name == "U-proj end sampling Blank 1 unfiltered" ~ total_relab / 2,
+    common_name == "U-proj end sampling unfiltered + Acetate" ~ total_relab / 2,
+    common_name == "U-proj KFM02A End sampling 24/10-22 Control water" ~ total_relab / 2, 
+    common_name == "U-proj KFM02A End sampling 24/10-22 Unfilter + Acetat" ~ total_relab / 1,
+    common_name == "U-proj KFM02A End sampling 24/10-22 Unfilter + Acetat + media" ~ total_relab,
+    common_name == "Forsmark unfiltered end sampling DNA 13/12-22" ~ total_relab / 1,
+    common_name == "Forsmark filtered+Acetate end sampling DNA 13/12-22" ~ total_relab / 1, 
+    common_name == "Uproject_DNA_filter + acetate" ~ total_relab / 3,
+    common_name == "Uproject_DNA_filter + acetate + SRB" ~ total_relab / 3,
+    common_name == "Uproject_DNA_filter_water" ~ total_relab / 3,
+    common_name == "U-proj KFM02A End sampling 24/10-22 Filter + Acetat + media" ~ total_relab / 1)) %>% 
+
+  ggplot(aes(
+    x = fct_relevel(fig_name,rev(c( 
+      "FW 2021",
+      "FW 2022",
+      "FW 2023",
+      "FW/Ace 2021",
+      "FW/Ace 2022",
+      "FW/Ace 2023",
+      "FW/Ace/Med641 2022",
+      "FW/Ace/Med/SRB 2021",
+      "UW 2022",
+      "UW 2023",
+      "UW/Ace 2022",
+      "UW/Ace 2023",
+      "UW/Ace/Med641 2022"))), 
+    y = relab_adjusted, 
+    fill = fct_relevel(topfamily, "Other" , after = Inf))) +
+  geom_col() +
+  #facet_grid(. ~ factor(year, levels = c("2021", "2022", "2023")), scales = "free_x", drop = TRUE) + #this line of code splits the figure by the year levels
+  scale_fill_manual(values = myColors) +
+  coord_flip() +
+  labs(title = "Top 20 Family Inc45d")+
+  ylab("Relative Abundance")+
+  xlab("Your_sample_name")+
+  theme(
+   legend.position = 'bottom', legend.title = element_blank()) +
+  guides(fill = guide_legend(reverse = TRUE))
+    
+```
+
+```{r}
+ggsave("Figures/Uranium_magnus_StackedBar_Top_20_family_Inc45d_averages_decontam.pdf",scale = 2, width = 18, height = 13, units = "cm")
+```
+
+
+
+```{r}
+# Merge boreZtp_asvs with taxonomy and metadata
+final_table <- Inc45d_asvs %>%
+  inner_join(taxonomy, by = "seqid") %>%
+  inner_join(Inc45d_metadata, by = "sample") %>%
+  group_by(common_name, Family) %>%
+  summarise(total_count = sum(count), .groups = "drop") %>%
+  ungroup()
+
+# Identify the top 20 families based on total counts across all common_name
+top_families <- final_table %>%
+  group_by(Family) %>%
+  summarise(total_family_count = sum(total_count), .groups = "drop") %>%
+  arrange(desc(total_family_count)) %>%
+  slice_head(n = 20) %>%
+  pull(Family)
+
+# Categorize families as "Top 20" or "Other"
+final_table <- final_table %>%
+  mutate(Family = if_else(Family %in% top_families, Family, "Other"),
+         Family = if_else(is.na(Family), "Other", Family)) # Combine NA into "Other"
+
+# Summarize again to combine all "Other" counts
+final_table <- final_table %>%
+  group_by(common_name, Family) %>%
+  summarise(total_count = sum(total_count), .groups = "drop")
+
+# Calculate relative abundances for each family within each common_name
+final_table_relabs <- final_table %>%
+  group_by(common_name) %>%
+  mutate(relative_abundance = total_count / sum(total_count)) %>%
+  ungroup()
+
+# Reshape into wide format for absolute counts: row names = common_name, column names = Family, values = total counts
+wide_table <- final_table %>%
+  pivot_wider(names_from = Family, values_from = total_count, values_fill = 0)
+
+# Reshape into wide format for relative abundances: row names = common_name, column names = Family, values = relative abundances
+wide_table_relabs <- final_table_relabs %>%
+  dplyr::select(common_name, Family, relative_abundance) %>%
+  pivot_wider(names_from = Family, values_from = relative_abundance, values_fill = 0)
+
+# Save outputs for inspection
+write_csv(wide_table, "Figures/Inc45d_commonname_family_asv_counts.csv")
+write_csv(wide_table_relabs, "Figures/Inc45d_commonname_family_relative_abundances.csv")
+
+# Print previews
+print(wide_table)
+print(wide_table_relabs)
+
+```
+
+
+
+
+#control
+
+#family
+
+
+```{r}
+Control_metadata <- metadata %>%
+  subset(groups == "control") %>%
+  subset(common_name =="Uproject_Strain_Mix_DNA_control")
+
+
+Control_ASVS_subset <- ASVs_decontam %>%
+  dplyr::select(c(seqid,
+            #P25307_1013_S13,
+            #P25307_1014_S14,
+            #P25307_1015_S15,
+            P25307_1016_S16,
+            P25307_1017_S17,
+            P25307_1018_S18
+            #P30414_1060_S60,
+            #P30414_1061_S61
+            ))
+
+Control_asvs <-Control_ASVS_subset%>%
+  gather(sample, count, 2:ncol(.)) %>% 
+  #filter(count > 0) %>%
+  group_by(sample) %>% 
+  mutate(relab = count/sum(count)) %>% 
+  filter(n() > 0) %>% 
+  ungroup()
+
+
+
+```
+
+
+
+
+
+
+```{r assign-top10-family-to-taxonomy}
+# Start by finding the top 11 family *on average* over the samples
+p <- Control_asvs %>%
+  inner_join(taxonomy, by = 'seqid') %>%
+  group_by(Family, sample) %>%
+  # Calculate the relative abundance of each family in each sample
+  summarise(relab = sum(relab)) %>%
+  # Calculate the *mean* relative abundance of each family over the samples
+  summarise(mean_relab = mean(relab)) %>%
+  ungroup() %>%
+  # Filter out non-assigned family
+  filter(!is.na(Family)) %>%
+  # Select the top 11
+  top_n(20, mean_relab)
+# Add this information to the taxonomy table as the column topfamily
+taxonomy <- taxonomy_raw %>%
+  # Join in the top 10 table. *Important* with left join, otherwise you loose rows in the
+  # taxonomy table that do not appear in the top 11 table.
+  left_join(
+    p %>% 
+      # Duplicate the family column, with the old name and as "topfamily"
+      transmute(Family, topfamily = Family),
+    by = 'Family'
+  ) %>%
+  # Set topfamily to 'Other' for those that were not among the top 11
+  replace_na(list('topfamily' = 'Other'))
+```
+
+```{r}
+Control_asvs %>%
+  left_join(taxonomy, by = 'seqid') %>%
+  group_by(sample, Family) %>% summarise(relab = sum(relab)) %>% ungroup() %>%
+  spread(sample, relab, fill = 0) %>%
+  write_csv('Figures/Control_asvs_topfamily.csv')
+```
+
+
+```{r plot-top-family}
+Control_asvs %>%
+  inner_join(taxonomy, by = 'seqid') %>%
+  inner_join(Control_metadata, by = "sample")%>%
+  group_by(topfamily, sample, Your_sample_name, year, experiment,common_name)  %>% 
+  summarise(relab = sum(relab)) %>% 
+  ungroup()%>%
+  group_by(common_name) %>%
+  mutate(relab_adjusted = case_when(
+    #common_name == "Uproject_Mediamix_DNA_control" ~ relab / 3,
+    common_name == "Uproject_Strain_Mix_DNA_control" ~ relab / 3
+    #common_name == "U-proj KFM02A End sampling 24/10-22 Media 641" ~ relab / 1,
+    #common_name == "U-proj KFM02A End sampling 24/10-22 Acetate stock" ~ relab / 1
+    ))%>%
+  
+  ggplot(aes(
+    x = common_name,
+    y = relab_adjusted, 
+    fill = fct_relevel(topfamily, "Other" , after = Inf))) +
+  geom_col() +
+  #facet_grid(. ~ factor(year, levels = c("2021", "2022", "2023")), scales = "free_x", drop = TRUE) + #this line of code splits the figure by the year levels
+  scale_fill_manual(values = myColors) +
+  coord_flip() +
+  labs(title = "Top 20 Family Control")+
+  ylab("Relative Abundance")+
+  xlab("Your_sample_name")+
+  theme(
+   legend.position = 'bottom', legend.title = element_blank()) +
+  guides(fill = guide_legend(reverse = TRUE))
+    
+```
+
+```{r}
+ggsave("Figures/Uranium_magnus_StackedBar_Top_20_family_Control_averages_decontam.pdf",scale = 2, width = 18, height = 13, units = "cm")
+```
+
+
+
+```{r}
+# Merge boreZtp_asvs with taxonomy and metadata
+final_table <- Control_asvs %>%
+  inner_join(taxonomy, by = "seqid") %>%
+  inner_join(Control_metadata, by = "sample") %>%
+  group_by(common_name, Family) %>%
+  summarise(total_count = sum(count), .groups = "drop") %>%
+  ungroup()
+
+# Identify the top 20 families based on total counts across all common_name
+top_families <- final_table %>%
+  group_by(Family) %>%
+  summarise(total_family_count = sum(total_count), .groups = "drop") %>%
+  arrange(desc(total_family_count)) %>%
+  slice_head(n = 20) %>%
+  pull(Family)
+
+# Categorize families as "Top 20" or "Other"
+final_table <- final_table %>%
+  mutate(Family = if_else(Family %in% top_families, Family, "Other"),
+         Family = if_else(is.na(Family), "Other", Family)) # Combine NA into "Other"
+
+# Summarize again to combine all "Other" counts
+final_table <- final_table %>%
+  group_by(common_name, Family) %>%
+  summarise(total_count = sum(total_count), .groups = "drop")
+
+# Calculate relative abundances for each family within each common_name
+final_table_relabs <- final_table %>%
+  group_by(common_name) %>%
+  mutate(relative_abundance = total_count / sum(total_count)) %>%
+  ungroup()
+
+# Reshape into wide format for absolute counts: row names = common_name, column names = Family, values = total counts
+wide_table <- final_table %>%
+  pivot_wider(names_from = Family, values_from = total_count, values_fill = 0)
+
+# Reshape into wide format for relative abundances: row names = common_name, column names = Family, values = relative abundances
+wide_table_relabs <- final_table_relabs %>%
+  dplyr::select(common_name, Family, relative_abundance) %>%
+  pivot_wider(names_from = Family, values_from = relative_abundance, values_fill = 0)
+
+# Save outputs for inspection
+write_csv(wide_table, "Figures/Control_commonname_family_asv_counts.csv")
+write_csv(wide_table_relabs, "Figures/Control_commonname_family_relative_abundances.csv")
+
+# Print previews
+print(wide_table)
+print(wide_table_relabs)
+
+```
+
+
+
+
+
+
+
+
+
+
+
+#Other taxanomic levels. 
+
+
+
+
+
+#Order
+
+
+
+```{r}
+boreZtp_metadata <- metadata %>%
+  subset(groups == "boreZtp")
+
+
+boreZtp_ASVS_subset <- ASVs_decontam %>%
+  dplyr::select(c(seqid,
+            P25307_1010_S10, 
+            P25307_1021_S21,
+            P25307_1064_S64,
+            P25307_1065_S65,
+            P30414_1076_S76,
+            P30414_1077_S77,
+            P30414_1078_S78,
+            P30414_1079_S79,
+            P30414_1080_S80,
+            P30414_1062_S62,
+            P30414_1063_S63,
+            P30414_1064_S64,
+            P30414_1065_S65))
+
+
+
+boreZtp_asvs <-boreZtp_ASVS_subset%>%
+  gather(sample, count, 2:ncol(.)) %>% 
+  #filter(count > 0) %>%
+  group_by(sample) %>% 
+  mutate(relab = count/sum(count)) %>% 
+  filter(n() > 0) %>% 
+  ungroup()
+
+
+
+```
+
+
+
+
+
+
+```{r assign-top10-order-to-taxonomy}
+# Start by finding the top 11 order *on average* over the samples
+p <- boreZtp_asvs %>%
+  inner_join(taxonomy, by = 'seqid') %>%
+  group_by(Order, sample) %>%
+  # Calculate the relative abundance of each order in each sample
+  summarise(relab = sum(relab)) %>%
+  # Calculate the *mean* relative abundance of each order over the samples
+  summarise(mean_relab = sum(relab)) %>%
+  ungroup() %>%
+  # Filter out non-assigned order
+  filter(!is.na(Order)) %>%
+  # Select the top 11
+  top_n(20, mean_relab)
+# Add this information to the taxonomy table as the column toporder
+taxonomy <- taxonomy_raw %>%
+  # Join in the top 10 table. *Important* with left join, otherwise you loose rows in the
+  # taxonomy table that do not appear in the top 11 table.
+  left_join(
+    p %>% 
+      # Duplicate the order column, with the old name and as "toporder"
+      transmute(Order, toporder = Order),
+    by = 'Order'
+  ) %>%
+  # Set toporder to 'Other' for those that were not among the top 11
+  replace_na(list('toporder' = 'Other'))
+```
+
+```{r}
+boreZtp_asvs %>%
+  left_join(taxonomy, by = 'seqid') %>%
+  group_by(sample, Order) %>% summarise(relab = sum(relab)) %>% ungroup() %>%
+  spread(sample, relab, fill = 0) %>%
+  write_csv('Figures/boreZtp_asvs_toporder.csv')
+```
+   
+
+```{r plot-top-order}
+boreZtp_asvs %>%
+  inner_join(taxonomy, by = 'seqid') %>%
+  inner_join(boreZtp_metadata, by = "sample")%>%
+  group_by(toporder, sample, Your_sample_name, year, experiment,common_name, fig_name) %>%
+  summarise(relab = sum(relab)) %>% 
+  ungroup() %>%
+  group_by(common_name) %>%
+  mutate(relab_adjusted = case_when(
+    common_name == "Uproject_KFM02A_DNA" ~ relab / 4,
+    common_name == "U-proj KFM02A 6/6/2022 DNA" ~ relab / 5,
+    common_name == "U-proj KFM02A 21/2-2023 DNA" ~ relab / 4
+  )) %>%
+  ggplot(aes(
+    x = fct_relevel(fig_name,rev(c( "ZTP 2021" , "ZTP 2022" , "ZTP 2023"))),
+    y = relab_adjusted, 
+    fill = fct_relevel(toporder, "Other" , after = Inf))) +
+  geom_col() +
+  #facet_grid(. ~ factor(year, levels = c("2021", "2022", "2023")), scales = "free_x", drop = TRUE) + #this line of code splits the figure by the year levels
+  scale_fill_manual(values = myColors) +
+  coord_flip() +
+  labs(title = "Top 20 Order BoreZtp")+
+  ylab("Relative Abundance")+
+  xlab("Your_sample_name")+
+  theme(
+   legend.position = 'bottom', legend.title = element_blank()) +
+  guides(fill = guide_legend(reverse = TRUE))
+    
+```
+
+```{r}
+ggsave("Figures/Uranium_magnus_StackedBar_Top_20_order_boreZtp_averages_decontam.pdf",scale = 2, width = 18, height = 13, units = "cm")
+```
+
+
+```{r}
+# Merge boreZtp_asvs with taxonomy and metadata
+final_table <- boreZtp_asvs %>%
+  inner_join(taxonomy, by = "seqid") %>%
+  inner_join(boreZtp_metadata, by = "sample") %>%
+  group_by(common_name, Order) %>%
+  summarise(total_count = sum(count), .groups = "drop") %>%
+  ungroup()
+
+# Identify the top 20 order based on total counts across all common_name
+top_order <- final_table %>%
+  group_by(Order) %>%
+  summarise(total_order_count = sum(total_count), .groups = "drop") %>%
+  arrange(desc(total_order_count)) %>%
+  slice_head(n = 20) %>%
+  pull(Order)
+
+# Categorize order as "Top 20" or "Other"
+final_table <- final_table %>%
+  mutate(Order = if_else(Order %in% top_order, Order, "Other"),
+         Order = if_else(is.na(Order), "Other", Order)) # Combine NA into "Other"
+
+# Summarize again to combine all "Other" counts
+final_table <- final_table %>%
+  group_by(common_name, Order) %>%
+  summarise(total_count = sum(total_count), .groups = "drop")
+
+# Calculate relative abundances for each order within each common_name
+final_table_relabs <- final_table %>%
+  group_by(common_name) %>%
+  mutate(relative_abundance = total_count / sum(total_count)) %>%
+  ungroup()
+
+# Reshape into wide format for absolute counts: row names = common_name, column names = Order, values = total counts
+wide_table <- final_table %>%
+  pivot_wider(names_from = Order, values_from = total_count, values_fill = 0)
+
+# Reshape into wide format for relative abundances: row names = common_name, column names = Order, values = relative abundances
+wide_table_relabs <- final_table_relabs %>%
+  dplyr::select(common_name, Order, relative_abundance) %>%
+  pivot_wider(names_from = Order, values_from = relative_abundance, values_fill = 0)
+
+# Save outputs for inspection
+write_csv(wide_table, "Figures/boreZtp_commonname_order_asv_counts.csv")
+write_csv(wide_table_relabs, "Figures/boreZtp_commonname_order_relative_abundances.csv")
+
+# Print previews
+print(wide_table)
+print(wide_table_relabs)
+
+```
+
+#incubation 45 days  time point
+#Order
+
+
+
+
+
+```{r}
+Inc45d_metadata <- metadata %>%
+  subset(groups == "Inc45d")
+
+
+Inc45d_ASVS_subset <- ASVs_decontam %>%
+  dplyr::select(c(seqid,
+            P30414_1068_S68,
+            P30414_1069_S69,
+            P30414_1070_S70,
+            P30414_1071_S71,
+            P30414_1072_S72,
+            P30414_1073_S73,
+            P30414_1074_S74,
+            P30414_1075_S75,
+            P30414_1055_S55,
+            P30414_1056_S56,
+            P30414_1057_S57,
+            P30414_1058_S58,
+            P30414_1066_S66,
+            P30414_1067_S67,
+            P25307_1002_S2,
+            P25307_1005_S5,
+            P25307_1008_S8,
+            P25307_1001_S1,
+            P25307_1004_S4,
+            P25307_1007_S7,
+            P25307_1003_S3,
+            P25307_1006_S6,
+            P25307_1009_S9,
+            P30414_1059_S59))
+
+Inc45d_asvs <-Inc45d_ASVS_subset%>%
+  gather(sample, count, 2:ncol(.)) %>% 
+  #filter(count > 0) %>%
+  group_by(sample) %>%
+  mutate(total_count = sum(count)) %>%
+  mutate(relab = count / total_count) %>%
+  filter(n() > 0) %>% 
+  ungroup()
+
+
+
+```
+
+
+
+```{r assign-top10-order-to-taxonomy}
+# Start by finding the top 11 order *on average* over the samples
+p <- Inc45d_asvs %>%
+  inner_join(taxonomy, by = 'seqid') %>%
+  group_by(Order, sample) %>%
+  # Calculate the relative abundance of each order in each sample
+  summarise(relab = sum(relab)) %>%
+  # Calculate the *mean* relative abundance of each order over the samples
+  summarise(mean_relab = mean(relab)) %>%
+  ungroup() %>%
+  # Filter out non-assigned order
+  filter(!is.na(Order)) %>%
+  # Select the top 11
+  top_n(20, mean_relab)
+# Add this information to the taxonomy table as the column toporder
+taxonomy <- taxonomy_raw %>%
+  # Join in the top 10 table. *Important* with left join, otherwise you loose rows in the
+  # taxonomy table that do not appear in the top 11 table.
+  left_join(
+    p %>% 
+      # Duplicate the order column, with the old name and as "toporder"
+      transmute(Order, toporder = Order),
+    by = 'Order'
+  ) %>%
+  # Set toporder to 'Other' for those that were not among the top 11
+  replace_na(list('toporder' = 'Other'))
+```
+
+```{r}
+Inc45d_asvs %>%
+  left_join(taxonomy, by = 'seqid') %>%
+  group_by(sample, Order) %>% summarise(relab = sum(relab)) %>% ungroup() %>%
+  spread(sample, relab, fill = 0) %>%
+  write_csv('Figures/Inc45d_asvs_toporder.csv')
+```
+
+
+```{r plot-top-order}
+Inc45d_asvs %>%
+  inner_join(taxonomy, by = 'seqid') %>%
+  inner_join(Inc45d_metadata, by = "sample")%>%
+  group_by(toporder, sample, common_name, Your_sample_name, year, experiment,fig_name) %>% 
+  summarise(total_relab = sum(relab)) %>% 
+  ungroup() %>%
+  group_by(common_name) %>%
+  mutate(relab_adjusted = case_when(
+    common_name == "U-proj end sampling Blank 1 filtered" ~ total_relab / 2,
+    common_name == "U-proj end sampling filtered + Acetate" ~ total_relab / 2,
+    common_name == "U-proj end sampling Blank 1 unfiltered" ~ total_relab / 2,
+    common_name == "U-proj end sampling unfiltered + Acetate" ~ total_relab / 2,
+    common_name == "U-proj KFM02A End sampling 24/10-22 Control water" ~ total_relab / 2, 
+    common_name == "U-proj KFM02A End sampling 24/10-22 Unfilter + Acetat" ~ total_relab / 1,
+    common_name == "U-proj KFM02A End sampling 24/10-22 Unfilter + Acetat + media" ~ total_relab,
+    common_name == "Forsmark unfiltered end sampling DNA 13/12-22" ~ total_relab / 1,
+    common_name == "Forsmark filtered+Acetate end sampling DNA 13/12-22" ~ total_relab / 1, 
+    common_name == "Uproject_DNA_filter + acetate" ~ total_relab / 3,
+    common_name == "Uproject_DNA_filter + acetate + SRB" ~ total_relab / 3,
+    common_name == "Uproject_DNA_filter_water" ~ total_relab / 3,
+    common_name == "U-proj KFM02A End sampling 24/10-22 Filter + Acetat + media" ~ total_relab / 1)) %>% 
+
+  ggplot(aes(
+    x = fct_relevel(fig_name,rev(c( 
+      "FW 2021",
+      "FW 2022",
+      "FW 2023",
+      "FW/Ace 2021",
+      "FW/Ace 2022",
+      "FW/Ace 2023",
+      "FW/Ace/Med641 2022",
+      "FW/Ace/Med/SRB 2021",
+      "UW 2022",
+      "UW 2023",
+      "UW/Ace 2022",
+      "UW/Ace 2023",
+      "UW/Ace/Med641 2022"))), 
+    y = relab_adjusted, 
+    fill = fct_relevel(toporder, "Other" , after = Inf))) +
+  geom_col() +
+  #facet_grid(. ~ factor(year, levels = c("2021", "2022", "2023")), scales = "free_x", drop = TRUE) + #this line of code splits the figure by the year levels
+  scale_fill_manual(values = myColors) +
+  coord_flip() +
+  labs(title = "Top 20 Order Inc45d")+
+  ylab("Relative Abundance")+
+  xlab("Your_sample_name")+
+  theme(
+   legend.position = 'bottom', legend.title = element_blank()) +
+  guides(fill = guide_legend(reverse = TRUE))
+    
+```
+
+```{r}
+ggsave("Figures/Uranium_magnus_StackedBar_Top_20_order_Inc45d_averages_decontam.pdf",scale = 2, width = 18, height = 13, units = "cm")
+```
+
+
+
+```{r}
+# Merge boreZtp_asvs with taxonomy and metadata
+final_table <- Inc45d_asvs %>%
+  inner_join(taxonomy, by = "seqid") %>%
+  inner_join(Inc45d_metadata, by = "sample") %>%
+  group_by(common_name, Order) %>%
+  summarise(total_count = sum(count), .groups = "drop") %>%
+  ungroup()
+
+# Identify the top 20 order based on total counts across all common_name
+top_order <- final_table %>%
+  group_by(Order) %>%
+  summarise(total_order_count = sum(total_count), .groups = "drop") %>%
+  arrange(desc(total_order_count)) %>%
+  slice_head(n = 20) %>%
+  pull(Order)
+
+# Categorize order as "Top 20" or "Other"
+final_table <- final_table %>%
+  mutate(Order = if_else(Order %in% top_order, Order, "Other"),
+         Order = if_else(is.na(Order), "Other", Order)) # Combine NA into "Other"
+
+# Summarize again to combine all "Other" counts
+final_table <- final_table %>%
+  group_by(common_name, Order) %>%
+  summarise(total_count = sum(total_count), .groups = "drop")
+
+# Calculate relative abundances for each order within each common_name
+final_table_relabs <- final_table %>%
+  group_by(common_name) %>%
+  mutate(relative_abundance = total_count / sum(total_count)) %>%
+  ungroup()
+
+# Reshape into wide format for absolute counts: row names = common_name, column names = Order, values = total counts
+wide_table <- final_table %>%
+  pivot_wider(names_from = Order, values_from = total_count, values_fill = 0)
+
+# Reshape into wide format for relative abundances: row names = common_name, column names = Order, values = relative abundances
+wide_table_relabs <- final_table_relabs %>%
+  dplyr::select(common_name, Order, relative_abundance) %>%
+  pivot_wider(names_from = Order, values_from = relative_abundance, values_fill = 0)
+
+# Save outputs for inspection
+write_csv(wide_table, "Figures/Inc45d_commonname_order_asv_counts.csv")
+write_csv(wide_table_relabs, "Figures/Inc45d_commonname_order_relative_abundances.csv")
+
+# Print previews
+print(wide_table)
+print(wide_table_relabs)
+
+```
+
+
+
+
+#control
+
+#order
+
+
+```{r}
+Control_metadata <- metadata %>%
+  subset(groups == "control") %>%
+  subset(common_name =="Uproject_Strain_Mix_DNA_control")
+
+
+Control_ASVS_subset <- ASVs_decontam %>%
+  dplyr::select(c(seqid,
+            #P25307_1013_S13,
+            #P25307_1014_S14,
+            #P25307_1015_S15,
+            P25307_1016_S16,
+            P25307_1017_S17,
+            P25307_1018_S18
+            #P30414_1060_S60,
+            #P30414_1061_S61
+            ))
+
+Control_asvs <-Control_ASVS_subset%>%
+  gather(sample, count, 2:ncol(.)) %>% 
+  #filter(count > 0) %>%
+  group_by(sample) %>% 
+  mutate(relab = count/sum(count)) %>% 
+  filter(n() > 0) %>% 
+  ungroup()
+
+
+
+```
+
+
+
+
+
+
+```{r assign-top10-order-to-taxonomy}
+# Start by finding the top 11 order *on average* over the samples
+p <- Control_asvs %>%
+  inner_join(taxonomy, by = 'seqid') %>%
+  group_by(Order, sample) %>%
+  # Calculate the relative abundance of each order in each sample
+  summarise(relab = sum(relab)) %>%
+  # Calculate the *mean* relative abundance of each order over the samples
+  summarise(mean_relab = mean(relab)) %>%
+  ungroup() %>%
+  # Filter out non-assigned order
+  filter(!is.na(Order)) %>%
+  # Select the top 11
+  top_n(20, mean_relab)
+# Add this information to the taxonomy table as the column toporder
+taxonomy <- taxonomy_raw %>%
+  # Join in the top 10 table. *Important* with left join, otherwise you loose rows in the
+  # taxonomy table that do not appear in the top 11 table.
+  left_join(
+    p %>% 
+      # Duplicate the order column, with the old name and as "toporder"
+      transmute(Order, toporder = Order),
+    by = 'Order'
+  ) %>%
+  # Set toporder to 'Other' for those that were not among the top 11
+  replace_na(list('toporder' = 'Other'))
+```
+
+```{r}
+Control_asvs %>%
+  left_join(taxonomy, by = 'seqid') %>%
+  group_by(sample, Order) %>% summarise(relab = sum(relab)) %>% ungroup() %>%
+  spread(sample, relab, fill = 0) %>%
+  write_csv('Figures/Control_asvs_toporder.csv')
+```
+
+
+```{r plot-top-order}
+Control_asvs %>%
+  inner_join(taxonomy, by = 'seqid') %>%
+  inner_join(Control_metadata, by = "sample")%>%
+  group_by(toporder, sample, Your_sample_name, year, experiment,common_name, fig_name)  %>% 
+  summarise(relab = sum(relab)) %>% 
+  ungroup()%>%
+  group_by(common_name) %>%
+  mutate(relab_adjusted = case_when(
+    #common_name == "Uproject_Mediamix_DNA_control" ~ relab / 3,
+    common_name == "Uproject_Strain_Mix_DNA_control" ~ relab / 3
+    #common_name == "U-proj KFM02A End sampling 24/10-22 Media 641" ~ relab / 1,
+    #common_name == "U-proj KFM02A End sampling 24/10-22 Acetate stock" ~ relab / 1
+    ))%>%
+  
+  ggplot(aes(
+    x = fct_relevel(fig_name,rev(c( "ZTP 2021" , "ZTP 2022" , "ZTP 2023"))),
+    y = relab_adjusted, 
+    fill = fct_relevel(toporder, "Other" , after = Inf))) +
+  geom_col() +
+  #facet_grid(. ~ factor(year, levels = c("2021", "2022", "2023")), scales = "free_x", drop = TRUE) + #this line of code splits the figure by the year levels
+  scale_fill_manual(values = myColors) +
+  coord_flip() +
+  labs(title = "Top 20 Order Control")+
+  ylab("Relative Abundance")+
+  xlab("Your_sample_name")+
+  theme(
+   legend.position = 'bottom', legend.title = element_blank()) +
+  guides(fill = guide_legend(reverse = TRUE))
+    
+```
+
+```{r}
+ggsave("Figures/Uranium_magnus_StackedBar_Top_20_order_Control_averages_decontam.pdf",scale = 2, width = 18, height = 13, units = "cm")
+```
+
+
+
+```{r}
+# Merge boreZtp_asvs with taxonomy and metadata
+final_table <- Control_asvs %>%
+  inner_join(taxonomy, by = "seqid") %>%
+  inner_join(Control_metadata, by = "sample") %>%
+  group_by(common_name, Order) %>%
+  summarise(total_count = sum(count), .groups = "drop") %>%
+  ungroup()
+
+# Identify the top 20 order based on total counts across all common_name
+top_order <- final_table %>%
+  group_by(Order) %>%
+  summarise(total_order_count = sum(total_count), .groups = "drop") %>%
+  arrange(desc(total_order_count)) %>%
+  slice_head(n = 20) %>%
+  pull(Order)
+
+# Categorize order as "Top 20" or "Other"
+final_table <- final_table %>%
+  mutate(Order = if_else(Order %in% top_order, Order, "Other"),
+         Order = if_else(is.na(Order), "Other", Order)) # Combine NA into "Other"
+
+# Summarize again to combine all "Other" counts
+final_table <- final_table %>%
+  group_by(common_name, Order) %>%
+  summarise(total_count = sum(total_count), .groups = "drop")
+
+# Calculate relative abundances for each order within each common_name
+final_table_relabs <- final_table %>%
+  group_by(common_name) %>%
+  mutate(relative_abundance = total_count / sum(total_count)) %>%
+  ungroup()
+
+# Reshape into wide format for absolute counts: row names = common_name, column names = Order, values = total counts
+wide_table <- final_table %>%
+  pivot_wider(names_from = Order, values_from = total_count, values_fill = 0)
+
+# Reshape into wide format for relative abundances: row names = common_name, column names = Order, values = relative abundances
+wide_table_relabs <- final_table_relabs %>%
+  dplyr::select(common_name, Order, relative_abundance) %>%
+  pivot_wider(names_from = Order, values_from = relative_abundance, values_fill = 0)
+
+# Save outputs for inspection
+write_csv(wide_table, "Figures/Control_commonname_order_asv_counts.csv")
+write_csv(wide_table_relabs, "Figures/Control_commonname_order_relative_abundances.csv")
+
+# Print previews
+print(wide_table)
+print(wide_table_relabs)
+
+```
+
+
+
+
+
+
+
+
+#Class
+
+
+
+```{r}
+boreZtp_metadata <- metadata %>%
+  subset(groups == "boreZtp")
+
+
+boreZtp_ASVS_subset <- ASVs_decontam %>%
+  dplyr::select(c(seqid,
+            P25307_1010_S10, 
+            P25307_1021_S21,
+            P25307_1064_S64,
+            P25307_1065_S65,
+            P30414_1076_S76,
+            P30414_1077_S77,
+            P30414_1078_S78,
+            P30414_1079_S79,
+            P30414_1080_S80,
+            P30414_1062_S62,
+            P30414_1063_S63,
+            P30414_1064_S64,
+            P30414_1065_S65))
+
+
+
+boreZtp_asvs <-boreZtp_ASVS_subset%>%
+  gather(sample, count, 2:ncol(.)) %>% 
+  #filter(count > 0) %>%
+  group_by(sample) %>% 
+  mutate(relab = count/sum(count)) %>% 
+  filter(n() > 0) %>% 
+  ungroup()
+
+
+
+```
+
+
+
+
+
+
+```{r assign-top10-class-to-taxonomy}
+# Start by finding the top 11 class *on average* over the samples
+p <- boreZtp_asvs %>%
+  inner_join(taxonomy, by = 'seqid') %>%
+  group_by(Class, sample) %>%
+  # Calculate the relative abundance of each class in each sample
+  summarise(relab = sum(relab)) %>%
+  # Calculate the *mean* relative abundance of each class over the samples
+  summarise(mean_relab = sum(relab)) %>%
+  ungroup() %>%
+  # Filter out non-assigned class
+  filter(!is.na(Class)) %>%
+  # Select the top 11
+  top_n(20, mean_relab)
+# Add this information to the taxonomy table as the column topclass
+taxonomy <- taxonomy_raw %>%
+  # Join in the top 10 table. *Important* with left join, otherwise you loose rows in the
+  # taxonomy table that do not appear in the top 11 table.
+  left_join(
+    p %>% 
+      # Duplicate the class column, with the old name and as "topclass"
+      transmute(Class, topclass = Class),
+    by = 'Class'
+  ) %>%
+  # Set topclass to 'Other' for those that were not among the top 11
+  replace_na(list('topclass' = 'Other'))
+```
+
+```{r}
+boreZtp_asvs %>%
+  left_join(taxonomy, by = 'seqid') %>%
+  group_by(sample, Class) %>% summarise(relab = sum(relab)) %>% ungroup() %>%
+  spread(sample, relab, fill = 0) %>%
+  write_csv('Figures/boreZtp_asvs_topclass.csv')
+```
+   
+
+```{r plot-top-class}
+boreZtp_asvs %>%
+  inner_join(taxonomy, by = 'seqid') %>%
+  inner_join(boreZtp_metadata, by = "sample")%>%
+  group_by(topclass, sample, Your_sample_name, year, experiment,common_name, fig_name) %>%
+  summarise(relab = sum(relab)) %>% 
+  ungroup() %>%
+  group_by(common_name) %>%
+  mutate(relab_adjusted = case_when(
+    common_name == "Uproject_KFM02A_DNA" ~ relab / 4,
+    common_name == "U-proj KFM02A 6/6/2022 DNA" ~ relab / 5,
+    common_name == "U-proj KFM02A 21/2-2023 DNA" ~ relab / 4
+  )) %>%
+  ggplot(aes(
+    x = fct_relevel(fig_name,rev(c( "ZTP 2021" , "ZTP 2022" , "ZTP 2023"))),
+    y = relab_adjusted, 
+    fill = fct_relevel(topclass, "Other" , after = Inf))) +
+  geom_col() +
+  #facet_grid(. ~ factor(year, levels = c("2021", "2022", "2023")), scales = "free_x", drop = TRUE) + #this line of code splits the figure by the year levels
+  scale_fill_manual(values = myColors) +
+  coord_flip() +
+  labs(title = "Top 20 Class BoreZtp")+
+  ylab("Relative Abundance")+
+  xlab("Your_sample_name")+
+  theme(
+   legend.position = 'bottom', legend.title = element_blank()) +
+  guides(fill = guide_legend(reverse = TRUE))
+    
+```
+
+```{r}
+ggsave("Figures/Uranium_magnus_StackedBar_Top_20_class_boreZtp_averages_decontam.pdf",scale = 2, width = 18, height = 13, units = "cm")
+```
+
+
+```{r}
+# Merge boreZtp_asvs with taxonomy and metadata
+final_table <- boreZtp_asvs %>%
+  inner_join(taxonomy, by = "seqid") %>%
+  inner_join(boreZtp_metadata, by = "sample") %>%
+  group_by(common_name, Class) %>%
+  summarise(total_count = sum(count), .groups = "drop") %>%
+  ungroup()
+
+# Identify the top 20 class based on total counts across all common_name
+top_class <- final_table %>%
+  group_by(Class) %>%
+  summarise(total_class_count = sum(total_count), .groups = "drop") %>%
+  arrange(desc(total_class_count)) %>%
+  slice_head(n = 20) %>%
+  pull(Class)
+
+# Categorize class as "Top 20" or "Other"
+final_table <- final_table %>%
+  mutate(Class = if_else(Class %in% top_class, Class, "Other"),
+         Class = if_else(is.na(Class), "Other", Class)) # Combine NA into "Other"
+
+# Summarize again to combine all "Other" counts
+final_table <- final_table %>%
+  group_by(common_name, Class) %>%
+  summarise(total_count = sum(total_count), .groups = "drop")
+
+# Calculate relative abundances for each class within each common_name
+final_table_relabs <- final_table %>%
+  group_by(common_name) %>%
+  mutate(relative_abundance = total_count / sum(total_count)) %>%
+  ungroup()
+
+# Reshape into wide format for absolute counts: row names = common_name, column names = Class, values = total counts
+wide_table <- final_table %>%
+  pivot_wider(names_from = Class, values_from = total_count, values_fill = 0)
+
+# Reshape into wide format for relative abundances: row names = common_name, column names = Class, values = relative abundances
+wide_table_relabs <- final_table_relabs %>%
+  dplyr::select(common_name, Class, relative_abundance) %>%
+  pivot_wider(names_from = Class, values_from = relative_abundance, values_fill = 0)
+
+# Save outputs for inspection
+write_csv(wide_table, "Figures/boreZtp_commonname_class_asv_counts.csv")
+write_csv(wide_table_relabs, "Figures/boreZtp_commonname_class_relative_abundances.csv")
+
+# Print previews
+print(wide_table)
+print(wide_table_relabs)
+
+```
+
+#incubation 45 days  time point
+#Class
+
+
+
+
+
+```{r}
+Inc45d_metadata <- metadata %>%
+  subset(groups == "Inc45d")
+
+
+Inc45d_ASVS_subset <- ASVs_decontam %>%
+  dplyr::select(c(seqid,
+            P30414_1068_S68,
+            P30414_1069_S69,
+            P30414_1070_S70,
+            P30414_1071_S71,
+            P30414_1072_S72,
+            P30414_1073_S73,
+            P30414_1074_S74,
+            P30414_1075_S75,
+            P30414_1055_S55,
+            P30414_1056_S56,
+            P30414_1057_S57,
+            P30414_1058_S58,
+            P30414_1066_S66,
+            P30414_1067_S67,
+            P25307_1002_S2,
+            P25307_1005_S5,
+            P25307_1008_S8,
+            P25307_1001_S1,
+            P25307_1004_S4,
+            P25307_1007_S7,
+            P25307_1003_S3,
+            P25307_1006_S6,
+            P25307_1009_S9,
+            P30414_1059_S59))
+
+Inc45d_asvs <-Inc45d_ASVS_subset%>%
+  gather(sample, count, 2:ncol(.)) %>% 
+  #filter(count > 0) %>%
+  group_by(sample) %>%
+  mutate(total_count = sum(count)) %>%
+  mutate(relab = count / total_count) %>%
+  filter(n() > 0) %>% 
+  ungroup()
+
+
+
+```
+
+
+
+```{r assign-top10-class-to-taxonomy}
+# Start by finding the top 11 class *on average* over the samples
+p <- Inc45d_asvs %>%
+  inner_join(taxonomy, by = 'seqid') %>%
+  group_by(Class, sample) %>%
+  # Calculate the relative abundance of each class in each sample
+  summarise(relab = sum(relab)) %>%
+  # Calculate the *mean* relative abundance of each class over the samples
+  summarise(mean_relab = mean(relab)) %>%
+  ungroup() %>%
+  # Filter out non-assigned class
+  filter(!is.na(Class)) %>%
+  # Select the top 11
+  top_n(20, mean_relab)
+# Add this information to the taxonomy table as the column topclass
+taxonomy <- taxonomy_raw %>%
+  # Join in the top 10 table. *Important* with left join, otherwise you loose rows in the
+  # taxonomy table that do not appear in the top 11 table.
+  left_join(
+    p %>% 
+      # Duplicate the class column, with the old name and as "topclass"
+      transmute(Class, topclass = Class),
+    by = 'Class'
+  ) %>%
+  # Set topclass to 'Other' for those that were not among the top 11
+  replace_na(list('topclass' = 'Other'))
+```
+
+```{r}
+Inc45d_asvs %>%
+  left_join(taxonomy, by = 'seqid') %>%
+  group_by(sample, Class) %>% summarise(relab = sum(relab)) %>% ungroup() %>%
+  spread(sample, relab, fill = 0) %>%
+  write_csv('Figures/Inc45d_asvs_topclass.csv')
+```
+
+
+```{r plot-top-class}
+Inc45d_asvs %>%
+  inner_join(taxonomy, by = 'seqid') %>%
+  inner_join(Inc45d_metadata, by = "sample")%>%
+  group_by(topclass, sample, common_name, Your_sample_name, year, experiment, fig_name) %>% 
+  summarise(total_relab = sum(relab)) %>% 
+  ungroup() %>%
+  group_by(common_name) %>%
+  mutate(relab_adjusted = case_when(
+    common_name == "U-proj end sampling Blank 1 filtered" ~ total_relab / 2,
+    common_name == "U-proj end sampling filtered + Acetate" ~ total_relab / 2,
+    common_name == "U-proj end sampling Blank 1 unfiltered" ~ total_relab / 2,
+    common_name == "U-proj end sampling unfiltered + Acetate" ~ total_relab / 2,
+    common_name == "U-proj KFM02A End sampling 24/10-22 Control water" ~ total_relab / 2, 
+    common_name == "U-proj KFM02A End sampling 24/10-22 Unfilter + Acetat" ~ total_relab / 1,
+    common_name == "U-proj KFM02A End sampling 24/10-22 Unfilter + Acetat + media" ~ total_relab,
+    common_name == "Forsmark unfiltered end sampling DNA 13/12-22" ~ total_relab / 1,
+    common_name == "Forsmark filtered+Acetate end sampling DNA 13/12-22" ~ total_relab / 1, 
+    common_name == "Uproject_DNA_filter + acetate" ~ total_relab / 3,
+    common_name == "Uproject_DNA_filter + acetate + SRB" ~ total_relab / 3,
+    common_name == "Uproject_DNA_filter_water" ~ total_relab / 3,
+    common_name == "U-proj KFM02A End sampling 24/10-22 Filter + Acetat + media" ~ total_relab / 1)) %>% 
+
+  ggplot(aes(
+    x = fct_relevel(fig_name,rev(c( 
+      "FW 2021",
+      "FW 2022",
+      "FW 2023",
+      "FW/Ace 2021",
+      "FW/Ace 2022",
+      "FW/Ace 2023",
+      "FW/Ace/Med641 2022",
+      "FW/Ace/Med/SRB 2021",
+      "UW 2022",
+      "UW 2023",
+      "UW/Ace 2022",
+      "UW/Ace 2023",
+      "UW/Ace/Med641 2022"))), 
+    y = relab_adjusted, 
+    fill = fct_relevel(topclass, "Other" , after = Inf))) +
+  geom_col() +
+  #facet_grid(. ~ factor(year, levels = c("2021", "2022", "2023")), scales = "free_x", drop = TRUE) + #this line of code splits the figure by the year levels
+  scale_fill_manual(values = myColors) +
+  coord_flip() +
+  labs(title = "Top 20 Class Inc45d")+
+  ylab("Relative Abundance")+
+  xlab("Your_sample_name")+
+  theme(
+   legend.position = 'bottom', legend.title = element_blank()) +
+  guides(fill = guide_legend(reverse = TRUE))
+    
+```
+
+```{r}
+ggsave("Figures/Uranium_magnus_StackedBar_Top_20_class_Inc45d_averages_decontam.pdf",scale = 2, width = 18, height = 13, units = "cm")
+```
+
+
+
+```{r}
+# Merge boreZtp_asvs with taxonomy and metadata
+final_table <- Inc45d_asvs %>%
+  inner_join(taxonomy, by = "seqid") %>%
+  inner_join(Inc45d_metadata, by = "sample") %>%
+  group_by(common_name, Class) %>%
+  summarise(total_count = sum(count), .groups = "drop") %>%
+  ungroup()
+
+# Identify the top 20 class based on total counts across all common_name
+top_class <- final_table %>%
+  group_by(Class) %>%
+  summarise(total_class_count = sum(total_count), .groups = "drop") %>%
+  arrange(desc(total_class_count)) %>%
+  slice_head(n = 20) %>%
+  pull(Class)
+
+# Categorize class as "Top 20" or "Other"
+final_table <- final_table %>%
+  mutate(Class = if_else(Class %in% top_class, Class, "Other"),
+         Class = if_else(is.na(Class), "Other", Class)) # Combine NA into "Other"
+
+# Summarize again to combine all "Other" counts
+final_table <- final_table %>%
+  group_by(common_name, Class) %>%
+  summarise(total_count = sum(total_count), .groups = "drop")
+
+# Calculate relative abundances for each class within each common_name
+final_table_relabs <- final_table %>%
+  group_by(common_name) %>%
+  mutate(relative_abundance = total_count / sum(total_count)) %>%
+  ungroup()
+
+# Reshape into wide format for absolute counts: row names = common_name, column names = Class, values = total counts
+wide_table <- final_table %>%
+  pivot_wider(names_from = Class, values_from = total_count, values_fill = 0)
+
+# Reshape into wide format for relative abundances: row names = common_name, column names = Class, values = relative abundances
+wide_table_relabs <- final_table_relabs %>%
+  dplyr::select(common_name, Class, relative_abundance) %>%
+  pivot_wider(names_from = Class, values_from = relative_abundance, values_fill = 0)
+
+# Save outputs for inspection
+write_csv(wide_table, "Figures/Inc45d_commonname_class_asv_counts.csv")
+write_csv(wide_table_relabs, "Figures/Inc45d_commonname_class_relative_abundances.csv")
+
+# Print previews
+print(wide_table)
+print(wide_table_relabs)
+
+```
+
+
+
+
+#control
+
+#class
+
+
+```{r}
+Control_metadata <- metadata %>%
+  subset(groups == "control") %>%
+  subset(common_name =="Uproject_Strain_Mix_DNA_control")
+
+
+Control_ASVS_subset <- ASVs_decontam %>%
+  dplyr::select(c(seqid,
+            #P25307_1013_S13,
+            #P25307_1014_S14,
+            #P25307_1015_S15,
+            P25307_1016_S16,
+            P25307_1017_S17,
+            P25307_1018_S18
+            #P30414_1060_S60,
+            #P30414_1061_S61
+            ))
+
+Control_asvs <-Control_ASVS_subset%>%
+  gather(sample, count, 2:ncol(.)) %>% 
+  #filter(count > 0) %>%
+  group_by(sample) %>% 
+  mutate(relab = count/sum(count)) %>% 
+  filter(n() > 0) %>% 
+  ungroup()
+
+
+
+```
+
+
+
+
+
+
+```{r assign-top10-class-to-taxonomy}
+# Start by finding the top 11 class *on average* over the samples
+p <- Control_asvs %>%
+  inner_join(taxonomy, by = 'seqid') %>%
+  group_by(Class, sample) %>%
+  # Calculate the relative abundance of each class in each sample
+  summarise(relab = sum(relab)) %>%
+  # Calculate the *mean* relative abundance of each class over the samples
+  summarise(mean_relab = mean(relab)) %>%
+  ungroup() %>%
+  # Filter out non-assigned class
+  filter(!is.na(Class)) %>%
+  # Select the top 11
+  top_n(20, mean_relab)
+# Add this information to the taxonomy table as the column topclass
+taxonomy <- taxonomy_raw %>%
+  # Join in the top 10 table. *Important* with left join, otherwise you loose rows in the
+  # taxonomy table that do not appear in the top 11 table.
+  left_join(
+    p %>% 
+      # Duplicate the class column, with the old name and as "topclass"
+      transmute(Class, topclass = Class),
+    by = 'Class'
+  ) %>%
+  # Set topclass to 'Other' for those that were not among the top 11
+  replace_na(list('topclass' = 'Other'))
+```
+
+```{r}
+Control_asvs %>%
+  left_join(taxonomy, by = 'seqid') %>%
+  group_by(sample, Class) %>% summarise(relab = sum(relab)) %>% ungroup() %>%
+  spread(sample, relab, fill = 0) %>%
+  write_csv('Figures/Control_asvs_topclass.csv')
+```
+
+
+```{r plot-top-class}
+Control_asvs %>%
+  inner_join(taxonomy, by = 'seqid') %>%
+  inner_join(Control_metadata, by = "sample")%>%
+  group_by(topclass, sample, Your_sample_name, year, experiment,common_name, fig_name)  %>% 
+  summarise(relab = sum(relab)) %>% 
+  ungroup()%>%
+  group_by(common_name) %>%
+  mutate(relab_adjusted = case_when(
+    #common_name == "Uproject_Mediamix_DNA_control" ~ relab / 3,
+    common_name == "Uproject_Strain_Mix_DNA_control" ~ relab / 3
+    #common_name == "U-proj KFM02A End sampling 24/10-22 Media 641" ~ relab / 1,
+    #common_name == "U-proj KFM02A End sampling 24/10-22 Acetate stock" ~ relab / 1
+    ))%>%
+  
+  ggplot(aes(
+    x = fct_relevel(fig_name,rev(c( "ZTP 2021" , "ZTP 2022" , "ZTP 2023"))),
+    y = relab_adjusted, 
+    fill = fct_relevel(topclass, "Other" , after = Inf))) +
+  geom_col() +
+  #facet_grid(. ~ factor(year, levels = c("2021", "2022", "2023")), scales = "free_x", drop = TRUE) + #this line of code splits the figure by the year levels
+  scale_fill_manual(values = myColors) +
+  coord_flip() +
+  labs(title = "Top 20 Class Control")+
+  ylab("Relative Abundance")+
+  xlab("Your_sample_name")+
+  theme(
+   legend.position = 'bottom', legend.title = element_blank()) +
+  guides(fill = guide_legend(reverse = TRUE))
+    
+```
+
+```{r}
+ggsave("Figures/Uranium_magnus_StackedBar_Top_20_class_Control_averages_decontam.pdf",scale = 2, width = 18, height = 13, units = "cm")
+```
+
+
+
+```{r}
+# Merge boreZtp_asvs with taxonomy and metadata
+final_table <- Control_asvs %>%
+  inner_join(taxonomy, by = "seqid") %>%
+  inner_join(Control_metadata, by = "sample") %>%
+  group_by(common_name, Class) %>%
+  summarise(total_count = sum(count), .groups = "drop") %>%
+  ungroup()
+
+# Identify the top 20 class based on total counts across all common_name
+top_class <- final_table %>%
+  group_by(Class) %>%
+  summarise(total_class_count = sum(total_count), .groups = "drop") %>%
+  arrange(desc(total_class_count)) %>%
+  slice_head(n = 20) %>%
+  pull(Class)
+
+# Categorize class as "Top 20" or "Other"
+final_table <- final_table %>%
+  mutate(Class = if_else(Class %in% top_class, Class, "Other"),
+         Class = if_else(is.na(Class), "Other", Class)) # Combine NA into "Other"
+
+# Summarize again to combine all "Other" counts
+final_table <- final_table %>%
+  group_by(common_name, Class) %>%
+  summarise(total_count = sum(total_count), .groups = "drop")
+
+# Calculate relative abundances for each class within each common_name
+final_table_relabs <- final_table %>%
+  group_by(common_name) %>%
+  mutate(relative_abundance = total_count / sum(total_count)) %>%
+  ungroup()
+
+# Reshape into wide format for absolute counts: row names = common_name, column names = Class, values = total counts
+wide_table <- final_table %>%
+  pivot_wider(names_from = Class, values_from = total_count, values_fill = 0)
+
+# Reshape into wide format for relative abundances: row names = common_name, column names = Class, values = relative abundances
+wide_table_relabs <- final_table_relabs %>%
+  dplyr::select(common_name, Class, relative_abundance) %>%
+  pivot_wider(names_from = Class, values_from = relative_abundance, values_fill = 0)
+
+# Save outputs for inspection
+write_csv(wide_table, "Figures/Control_commonname_class_asv_counts.csv")
+write_csv(wide_table_relabs, "Figures/Control_commonname_class_relative_abundances.csv")
+
+# Print previews
+print(wide_table)
+print(wide_table_relabs)
+
+```
+
+
+
+
+
+
+
+
+#Phylum
+
+
+
+
+```{r}
+boreZtp_metadata <- metadata %>%
+  subset(groups == "boreZtp")
+
+
+boreZtp_ASVS_subset <- ASVs_decontam %>%
+  dplyr::select(c(seqid,
+            P25307_1010_S10, 
+            P25307_1021_S21,
+            P25307_1064_S64,
+            P25307_1065_S65,
+            P30414_1076_S76,
+            P30414_1077_S77,
+            P30414_1078_S78,
+            P30414_1079_S79,
+            P30414_1080_S80,
+            P30414_1062_S62,
+            P30414_1063_S63,
+            P30414_1064_S64,
+            P30414_1065_S65))
+
+
+
+boreZtp_asvs <-boreZtp_ASVS_subset%>%
+  gather(sample, count, 2:ncol(.)) %>% 
+  #filter(count > 0) %>%
+  group_by(sample) %>% 
+  mutate(relab = count/sum(count)) %>% 
+  filter(n() > 0) %>% 
+  ungroup()
+
+
+
+```
+
+
+
+
+
+
+```{r assign-top10-phylum-to-taxonomy}
+# Start by finding the top 11 phylum *on average* over the samples
+p <- boreZtp_asvs %>%
+  inner_join(taxonomy, by = 'seqid') %>%
+  group_by(Phylum, sample) %>%
+  # Calculate the relative abundance of each phylum in each sample
+  summarise(relab = sum(relab)) %>%
+  # Calculate the *mean* relative abundance of each phylum over the samples
+  summarise(mean_relab = sum(relab)) %>%
+  ungroup() %>%
+  # Filter out non-assigned phylum
+  filter(!is.na(Phylum)) %>%
+  # Select the top 11
+  top_n(20, mean_relab)
+# Add this information to the taxonomy table as the column topphylum
+taxonomy <- taxonomy_raw %>%
+  # Join in the top 10 table. *Important* with left join, otherwise you loose rows in the
+  # taxonomy table that do not appear in the top 11 table.
+  left_join(
+    p %>% 
+      # Duplicate the phylum column, with the old name and as "topphylum"
+      transmute(Phylum, topphylum = Phylum),
+    by = 'Phylum'
+  ) %>%
+  # Set topphylum to 'Other' for those that were not among the top 11
+  replace_na(list('topphylum' = 'Other'))
+```
+
+```{r}
+boreZtp_asvs %>%
+  left_join(taxonomy, by = 'seqid') %>%
+  group_by(sample, Phylum) %>% summarise(relab = sum(relab)) %>% ungroup() %>%
+  spread(sample, relab, fill = 0) %>%
+  write_csv('Figures/boreZtp_asvs_topphylum.csv')
+```
+   
+
+```{r plot-top-phylum}
+boreZtp_asvs %>%
+  inner_join(taxonomy, by = 'seqid') %>%
+  inner_join(boreZtp_metadata, by = "sample")%>%
+  group_by(topphylum, sample, Your_sample_name, year, experiment,common_name, fig_name) %>%
+  summarise(relab = sum(relab)) %>% 
+  ungroup() %>%
+  group_by(common_name) %>%
+  mutate(relab_adjusted = case_when(
+    common_name == "Uproject_KFM02A_DNA" ~ relab / 4,
+    common_name == "U-proj KFM02A 6/6/2022 DNA" ~ relab / 5,
+    common_name == "U-proj KFM02A 21/2-2023 DNA" ~ relab / 4
+  )) %>%
+  ggplot(aes(
+    x = fct_relevel(fig_name,rev(c( "ZTP 2021" , "ZTP 2022" , "ZTP 2023"))),
+    y = relab_adjusted, 
+    fill = fct_relevel(topphylum, "Other" , after = Inf))) +
+  geom_col() +
+  #facet_grid(. ~ factor(year, levels = c("2021", "2022", "2023")), scales = "free_x", drop = TRUE) + #this line of code splits the figure by the year levels
+  scale_fill_manual(values = myColors) +
+  coord_flip() +
+  labs(title = "Top 20 Phylum BoreZtp")+
+  ylab("Relative Abundance")+
+  xlab("Your_sample_name")+
+  theme(
+   legend.position = 'bottom', legend.title = element_blank()) +
+  guides(fill = guide_legend(reverse = TRUE))
+    
+```
+
+```{r}
+ggsave("Figures/Uranium_magnus_StackedBar_Top_20_phylum_boreZtp_averages_decontam.pdf",scale = 2, width = 18, height = 13, units = "cm")
+```
+
+
+```{r}
+# Merge boreZtp_asvs with taxonomy and metadata
+final_table <- boreZtp_asvs %>%
+  inner_join(taxonomy, by = "seqid") %>%
+  inner_join(boreZtp_metadata, by = "sample") %>%
+  group_by(common_name, Phylum) %>%
+  summarise(total_count = sum(count), .groups = "drop") %>%
+  ungroup()
+
+# Identify the top 20 phyla based on total counts across all common_name
+top_phyla <- final_table %>%
+  group_by(Phylum) %>%
+  summarise(total_phylum_count = sum(total_count), .groups = "drop") %>%
+  arrange(desc(total_phylum_count)) %>%
+  slice_head(n = 20) %>%
+  pull(Phylum)
+
+# Categorize phyla as "Top 20" or "Other"
+final_table <- final_table %>%
+  mutate(Phylum = if_else(Phylum %in% top_phyla, Phylum, "Other"),
+         Phylum = if_else(is.na(Phylum), "Other", Phylum)) # Combine NA into "Other"
+
+# Summarize again to combine all "Other" counts
+final_table <- final_table %>%
+  group_by(common_name, Phylum) %>%
+  summarise(total_count = sum(total_count), .groups = "drop")
+
+# Calculate relative abundances for each phylum within each common_name
+final_table_relabs <- final_table %>%
+  group_by(common_name) %>%
+  mutate(relative_abundance = total_count / sum(total_count)) %>%
+  ungroup()
+
+# Reshape into wide format for absolute counts: row names = common_name, column names = Phylum, values = total counts
+wide_table <- final_table %>%
+  pivot_wider(names_from = Phylum, values_from = total_count, values_fill = 0)
+
+# Reshape into wide format for relative abundances: row names = common_name, column names = Phylum, values = relative abundances
+wide_table_relabs <- final_table_relabs %>%
+  dplyr::select(common_name, Phylum, relative_abundance) %>%
+  pivot_wider(names_from = Phylum, values_from = relative_abundance, values_fill = 0)
+
+# Save outputs for inspection
+write_csv(wide_table, "Figures/boreZtp_commonname_phylum_asv_counts.csv")
+write_csv(wide_table_relabs, "Figures/boreZtp_commonname_phylum_relative_abundances.csv")
+
+# Print previews
+print(wide_table)
+print(wide_table_relabs)
+
+```
+
+#incubation 45 days  time point
+#Phylum
+
+
+
+
+
+```{r}
+Inc45d_metadata <- metadata %>%
+  subset(groups == "Inc45d")
+
+
+Inc45d_ASVS_subset <- ASVs_decontam %>%
+  dplyr::select(c(seqid,
+            P30414_1068_S68,
+            P30414_1069_S69,
+            P30414_1070_S70,
+            P30414_1071_S71,
+            P30414_1072_S72,
+            P30414_1073_S73,
+            P30414_1074_S74,
+            P30414_1075_S75,
+            P30414_1055_S55,
+            P30414_1056_S56,
+            P30414_1057_S57,
+            P30414_1058_S58,
+            P30414_1066_S66,
+            P30414_1067_S67,
+            P25307_1002_S2,
+            P25307_1005_S5,
+            P25307_1008_S8,
+            P25307_1001_S1,
+            P25307_1004_S4,
+            P25307_1007_S7,
+            P25307_1003_S3,
+            P25307_1006_S6,
+            P25307_1009_S9,
+            P30414_1059_S59))
+
+Inc45d_asvs <-Inc45d_ASVS_subset%>%
+  gather(sample, count, 2:ncol(.)) %>% 
+  #filter(count > 0) %>%
+  group_by(sample) %>%
+  mutate(total_count = sum(count)) %>%
+  mutate(relab = count / total_count) %>%
+  filter(n() > 0) %>% 
+  ungroup()
+
+
+
+```
+
+
+
+```{r assign-top10-phylum-to-taxonomy}
+# Start by finding the top 11 phylum *on average* over the samples
+p <- Inc45d_asvs %>%
+  inner_join(taxonomy, by = 'seqid') %>%
+  group_by(Phylum, sample) %>%
+  # Calculate the relative abundance of each phylum in each sample
+  summarise(relab = sum(relab)) %>%
+  # Calculate the *mean* relative abundance of each phylum over the samples
+  summarise(mean_relab = mean(relab)) %>%
+  ungroup() %>%
+  # Filter out non-assigned phylum
+  filter(!is.na(Phylum)) %>%
+  # Select the top 11
+  top_n(20, mean_relab)
+# Add this information to the taxonomy table as the column topphylum
+taxonomy <- taxonomy_raw %>%
+  # Join in the top 10 table. *Important* with left join, otherwise you loose rows in the
+  # taxonomy table that do not appear in the top 11 table.
+  left_join(
+    p %>% 
+      # Duplicate the phylum column, with the old name and as "topphylum"
+      transmute(Phylum, topphylum = Phylum),
+    by = 'Phylum'
+  ) %>%
+  # Set topphylum to 'Other' for those that were not among the top 11
+  replace_na(list('topphylum' = 'Other'))
+```
+
+```{r}
+Inc45d_asvs %>%
+  left_join(taxonomy, by = 'seqid') %>%
+  group_by(sample, Phylum) %>% summarise(relab = sum(relab)) %>% ungroup() %>%
+  spread(sample, relab, fill = 0) %>%
+  write_csv('Figures/Inc45d_asvs_topphylum.csv')
+```
+
+
+```{r plot-top-phylum}
+Inc45d_asvs %>%
+  inner_join(taxonomy, by = 'seqid') %>%
+  inner_join(Inc45d_metadata, by = "sample")%>%
+  group_by(topphylum, sample, common_name, Your_sample_name, year, experiment, fig_name) %>% 
+  summarise(total_relab = sum(relab)) %>% 
+  ungroup() %>%
+  group_by(common_name) %>%
+  mutate(relab_adjusted = case_when(
+    common_name == "U-proj end sampling Blank 1 filtered" ~ total_relab / 2,
+    common_name == "U-proj end sampling filtered + Acetate" ~ total_relab / 2,
+    common_name == "U-proj end sampling Blank 1 unfiltered" ~ total_relab / 2,
+    common_name == "U-proj end sampling unfiltered + Acetate" ~ total_relab / 2,
+    common_name == "U-proj KFM02A End sampling 24/10-22 Control water" ~ total_relab / 2, 
+    common_name == "U-proj KFM02A End sampling 24/10-22 Unfilter + Acetat" ~ total_relab / 1,
+    common_name == "U-proj KFM02A End sampling 24/10-22 Unfilter + Acetat + media" ~ total_relab,
+    common_name == "Forsmark unfiltered end sampling DNA 13/12-22" ~ total_relab / 1,
+    common_name == "Forsmark filtered+Acetate end sampling DNA 13/12-22" ~ total_relab / 1, 
+    common_name == "Uproject_DNA_filter + acetate" ~ total_relab / 3,
+    common_name == "Uproject_DNA_filter + acetate + SRB" ~ total_relab / 3,
+    common_name == "Uproject_DNA_filter_water" ~ total_relab / 3,
+    common_name == "U-proj KFM02A End sampling 24/10-22 Filter + Acetat + media" ~ total_relab / 1)) %>% 
+
+  ggplot(aes(
+    x = fct_relevel(fig_name,rev(c( 
+      "FW 2021",
+      "FW 2022",
+      "FW 2023",
+      "FW/Ace 2021",
+      "FW/Ace 2022",
+      "FW/Ace 2023",
+      "FW/Ace/Med641 2022",
+      "FW/Ace/Med/SRB 2021",
+      "UW 2022",
+      "UW 2023",
+      "UW/Ace 2022",
+      "UW/Ace 2023",
+      "UW/Ace/Med641 2022"))), 
+    y = relab_adjusted, 
+    fill = fct_relevel(topphylum, "Other" , after = Inf))) +
+  geom_col() +
+  #facet_grid(. ~ factor(year, levels = c("2021", "2022", "2023")), scales = "free_x", drop = TRUE) + #this line of code splits the figure by the year levels
+  scale_fill_manual(values = myColors) +
+  coord_flip() +
+  labs(title = "Top 20 Phylum Inc45d")+
+  ylab("Relative Abundance")+
+  xlab("Your_sample_name")+
+  theme(
+   legend.position = 'bottom', legend.title = element_blank()) +
+  guides(fill = guide_legend(reverse = TRUE))
+    
+```
+
+```{r}
+ggsave("Figures/Uranium_magnus_StackedBar_Top_20_phylum_Inc45d_averages_decontam.pdf",scale = 2, width = 18, height = 13, units = "cm")
+```
+
+
+
+```{r}
+# Merge boreZtp_asvs with taxonomy and metadata
+final_table <- Inc45d_asvs %>%
+  inner_join(taxonomy, by = "seqid") %>%
+  inner_join(Inc45d_metadata, by = "sample") %>%
+  group_by(common_name, Phylum) %>%
+  summarise(total_count = sum(count), .groups = "drop") %>%
+  ungroup()
+
+# Identify the top 20 phyla based on total counts across all common_name
+top_phyla <- final_table %>%
+  group_by(Phylum) %>%
+  summarise(total_phylum_count = sum(total_count), .groups = "drop") %>%
+  arrange(desc(total_phylum_count)) %>%
+  slice_head(n = 20) %>%
+  pull(Phylum)
+
+# Categorize phyla as "Top 20" or "Other"
+final_table <- final_table %>%
+  mutate(Phylum = if_else(Phylum %in% top_phyla, Phylum, "Other"),
+         Phylum = if_else(is.na(Phylum), "Other", Phylum)) # Combine NA into "Other"
+
+# Summarize again to combine all "Other" counts
+final_table <- final_table %>%
+  group_by(common_name, Phylum) %>%
+  summarise(total_count = sum(total_count), .groups = "drop")
+
+# Calculate relative abundances for each phylum within each common_name
+final_table_relabs <- final_table %>%
+  group_by(common_name) %>%
+  mutate(relative_abundance = total_count / sum(total_count)) %>%
+  ungroup()
+
+# Reshape into wide format for absolute counts: row names = common_name, column names = Phylum, values = total counts
+wide_table <- final_table %>%
+  pivot_wider(names_from = Phylum, values_from = total_count, values_fill = 0)
+
+# Reshape into wide format for relative abundances: row names = common_name, column names = Phylum, values = relative abundances
+wide_table_relabs <- final_table_relabs %>%
+  dplyr::select(common_name, Phylum, relative_abundance) %>%
+  pivot_wider(names_from = Phylum, values_from = relative_abundance, values_fill = 0)
+
+# Save outputs for inspection
+write_csv(wide_table, "Figures/Inc45d_commonname_phylum_asv_counts.csv")
+write_csv(wide_table_relabs, "Figures/Inc45d_commonname_phylum_relative_abundances.csv")
+
+# Print previews
+print(wide_table)
+print(wide_table_relabs)
+
+```
+
+
+
+
+#control
+
+#phylum
+
+
+```{r}
+Control_metadata <- metadata %>%
+  subset(groups == "control") %>%
+  subset(common_name =="Uproject_Strain_Mix_DNA_control")
+
+
+Control_ASVS_subset <- ASVs_decontam %>%
+  dplyr::select(c(seqid,
+            #P25307_1013_S13,
+            #P25307_1014_S14,
+            #P25307_1015_S15,
+            P25307_1016_S16,
+            P25307_1017_S17,
+            P25307_1018_S18
+            #P30414_1060_S60,
+            #P30414_1061_S61
+            ))
+
+Control_asvs <-Control_ASVS_subset%>%
+  gather(sample, count, 2:ncol(.)) %>% 
+  #filter(count > 0) %>%
+  group_by(sample) %>% 
+  mutate(relab = count/sum(count)) %>% 
+  filter(n() > 0) %>% 
+  ungroup()
+
+
+
+```
+
+
+
+
+
+
+```{r assign-top10-phylum-to-taxonomy}
+# Start by finding the top 11 phylum *on average* over the samples
+p <- Control_asvs %>%
+  inner_join(taxonomy, by = 'seqid') %>%
+  group_by(Phylum, sample) %>%
+  # Calculate the relative abundance of each phylum in each sample
+  summarise(relab = sum(relab)) %>%
+  # Calculate the *mean* relative abundance of each phylum over the samples
+  summarise(mean_relab = mean(relab)) %>%
+  ungroup() %>%
+  # Filter out non-assigned phylum
+  filter(!is.na(Phylum)) %>%
+  # Select the top 11
+  top_n(20, mean_relab)
+# Add this information to the taxonomy table as the column topphylum
+taxonomy <- taxonomy_raw %>%
+  # Join in the top 10 table. *Important* with left join, otherwise you loose rows in the
+  # taxonomy table that do not appear in the top 11 table.
+  left_join(
+    p %>% 
+      # Duplicate the phylum column, with the old name and as "topphylum"
+      transmute(Phylum, topphylum = Phylum),
+    by = 'Phylum'
+  ) %>%
+  # Set topphylum to 'Other' for those that were not among the top 11
+  replace_na(list('topphylum' = 'Other'))
+```
+
+```{r}
+Control_asvs %>%
+  left_join(taxonomy, by = 'seqid') %>%
+  group_by(sample, Phylum) %>% summarise(relab = sum(relab)) %>% ungroup() %>%
+  spread(sample, relab, fill = 0) %>%
+  write_csv('Figures/Control_asvs_topphylum.csv')
+```
+
+
+```{r plot-top-phylum}
+Control_asvs %>%
+  inner_join(taxonomy, by = 'seqid') %>%
+  inner_join(Control_metadata, by = "sample")%>%
+  group_by(topphylum, sample, Your_sample_name, year, experiment,common_name)  %>% 
+  summarise(relab = sum(relab)) %>% 
+  ungroup()%>%
+  group_by(common_name) %>%
+  mutate(relab_adjusted = case_when(
+    #common_name == "Uproject_Mediamix_DNA_control" ~ relab / 3,
+    common_name == "Uproject_Strain_Mix_DNA_control" ~ relab / 3
+    #common_name == "U-proj KFM02A End sampling 24/10-22 Media 641" ~ relab / 1,
+    #common_name == "U-proj KFM02A End sampling 24/10-22 Acetate stock" ~ relab / 1
+    ))%>%
+  
+  ggplot(aes(
+    x = common_name,
+    y = relab_adjusted, 
+    fill = fct_relevel(topphylum, "Other" , after = Inf))) +
+  geom_col() +
+  #facet_grid(. ~ factor(year, levels = c("2021", "2022", "2023")), scales = "free_x", drop = TRUE) + #this line of code splits the figure by the year levels
+  scale_fill_manual(values = myColors) +
+  coord_flip() +
+  labs(title = "Top 20 Phylum Control")+
+  ylab("Relative Abundance")+
+  xlab("Your_sample_name")+
+  theme(
+   legend.position = 'bottom', legend.title = element_blank()) +
+  guides(fill = guide_legend(reverse = TRUE))
+    
+```
+
+```{r}
+ggsave("Figures/Uranium_magnus_StackedBar_Top_20_phylum_Control_averages_decontam.pdf",scale = 2, width = 18, height = 13, units = "cm")
+```
+
+
+
+```{r}
+# Merge boreZtp_asvs with taxonomy and metadata
+final_table <- Control_asvs %>%
+  inner_join(taxonomy, by = "seqid") %>%
+  inner_join(Control_metadata, by = "sample") %>%
+  group_by(common_name, Phylum) %>%
+  summarise(total_count = sum(count), .groups = "drop") %>%
+  ungroup()
+
+# Identify the top 20 phyla based on total counts across all common_name
+top_phyla <- final_table %>%
+  group_by(Phylum) %>%
+  summarise(total_phylum_count = sum(total_count), .groups = "drop") %>%
+  arrange(desc(total_phylum_count)) %>%
+  slice_head(n = 20) %>%
+  pull(Phylum)
+
+# Categorize phyla as "Top 20" or "Other"
+final_table <- final_table %>%
+  mutate(Phylum = if_else(Phylum %in% top_phyla, Phylum, "Other"),
+         Phylum = if_else(is.na(Phylum), "Other", Phylum)) # Combine NA into "Other"
+
+# Summarize again to combine all "Other" counts
+final_table <- final_table %>%
+  group_by(common_name, Phylum) %>%
+  summarise(total_count = sum(total_count), .groups = "drop")
+
+# Calculate relative abundances for each phylum within each common_name
+final_table_relabs <- final_table %>%
+  group_by(common_name) %>%
+  mutate(relative_abundance = total_count / sum(total_count)) %>%
+  ungroup()
+
+# Reshape into wide format for absolute counts: row names = common_name, column names = Phylum, values = total counts
+wide_table <- final_table %>%
+  pivot_wider(names_from = Phylum, values_from = total_count, values_fill = 0)
+
+# Reshape into wide format for relative abundances: row names = common_name, column names = Phylum, values = relative abundances
+wide_table_relabs <- final_table_relabs %>%
+  dplyr::select(common_name, Phylum, relative_abundance) %>%
+  pivot_wider(names_from = Phylum, values_from = relative_abundance, values_fill = 0)
+
+# Save outputs for inspection
+write_csv(wide_table, "Figures/Control_commonname_phylum_asv_counts.csv")
+write_csv(wide_table_relabs, "Figures/Control_commonname_phylum_relative_abundances.csv")
+
+# Print previews
+print(wide_table)
+print(wide_table_relabs)
+
+```
+
+
+
+
+#Kingdom
+
+
+
+
+```{r}
+boreZtp_metadata <- metadata %>%
+  subset(groups == "boreZtp")
+
+
+boreZtp_ASVS_subset <- ASVs_decontam %>%
+  dplyr::select(c(seqid,
+            P25307_1010_S10, 
+            P25307_1021_S21,
+            P25307_1064_S64,
+            P25307_1065_S65,
+            P30414_1076_S76,
+            P30414_1077_S77,
+            P30414_1078_S78,
+            P30414_1079_S79,
+            P30414_1080_S80,
+            P30414_1062_S62,
+            P30414_1063_S63,
+            P30414_1064_S64,
+            P30414_1065_S65))
+
+
+
+boreZtp_asvs <-boreZtp_ASVS_subset%>%
+  gather(sample, count, 2:ncol(.)) %>% 
+  #filter(count > 0) %>%
+  group_by(sample) %>% 
+  mutate(relab = count/sum(count)) %>% 
+  filter(n() > 0) %>% 
+  ungroup()
+
+
+
+```
+
+
+
+
+
+
+```{r assign-top10-kingdom-to-taxonomy}
+# Start by finding the top 11 kingdom *on average* over the samples
+p <- boreZtp_asvs %>%
+  inner_join(taxonomy, by = 'seqid') %>%
+  group_by(Kingdom, sample) %>%
+  # Calculate the relative abundance of each kingdom in each sample
+  summarise(relab = sum(relab)) %>%
+  # Calculate the *mean* relative abundance of each kingdom over the samples
+  summarise(mean_relab = sum(relab)) %>%
+  ungroup() %>%
+  # Filter out non-assigned kingdom
+  filter(!is.na(Kingdom)) %>%
+  # Select the top 11
+  top_n(20, mean_relab)
+# Add this information to the taxonomy table as the column topkingdom
+taxonomy <- taxonomy_raw %>%
+  # Join in the top 10 table. *Important* with left join, otherwise you loose rows in the
+  # taxonomy table that do not appear in the top 11 table.
+  left_join(
+    p %>% 
+      # Duplicate the kingdom column, with the old name and as "topkingdom"
+      transmute(Kingdom, topkingdom = Kingdom),
+    by = 'Kingdom'
+  ) %>%
+  # Set topkingdom to 'Other' for those that were not among the top 11
+  replace_na(list('topkingdom' = 'Other'))
+```
+
+```{r}
+boreZtp_asvs %>%
+  left_join(taxonomy, by = 'seqid') %>%
+  group_by(sample, Kingdom) %>% summarise(relab = sum(relab)) %>% ungroup() %>%
+  spread(sample, relab, fill = 0) %>%
+  write_csv('Figures/boreZtp_asvs_topkingdom.csv')
+```
+   
+
+```{r plot-top-kingdom}
+boreZtp_asvs %>%
+  inner_join(taxonomy, by = 'seqid') %>%
+  inner_join(boreZtp_metadata, by = "sample")%>%
+  group_by(topkingdom, sample, Your_sample_name, year, experiment,common_name, fig_name) %>%
+  summarise(relab = sum(relab)) %>% 
+  ungroup() %>%
+  group_by(common_name) %>%
+  mutate(relab_adjusted = case_when(
+    common_name == "Uproject_KFM02A_DNA" ~ relab / 4,
+    common_name == "U-proj KFM02A 6/6/2022 DNA" ~ relab / 5,
+    common_name == "U-proj KFM02A 21/2-2023 DNA" ~ relab / 4
+  )) %>%
+  ggplot(aes(
+    x = fct_relevel(fig_name,rev(c( "ZTP 2021" , "ZTP 2022" , "ZTP 2023"))),
+    y = relab_adjusted, 
+    fill = fct_relevel(topkingdom, "Other" , after = Inf))) +
+  geom_col() +
+  #facet_grid(. ~ factor(year, levels = c("2021", "2022", "2023")), scales = "free_x", drop = TRUE) + #this line of code splits the figure by the year levels
+  scale_fill_manual(values = myColors) +
+  coord_flip() +
+  labs(title = "Top 20 Kingdom BoreZtp")+
+  ylab("Relative Abundance")+
+  xlab("Your_sample_name")+
+  theme(
+   legend.position = 'bottom', legend.title = element_blank()) +
+  guides(fill = guide_legend(reverse = TRUE))
+    
+```
+
+```{r}
+ggsave("Figures/Uranium_magnus_StackedBar_Top_20_kingdom_boreZtp_averages_decontam.pdf",scale = 2, width = 18, height = 13, units = "cm")
+```
+
+
+```{r}
+# Merge boreZtp_asvs with taxonomy and metadata
+final_table <- boreZtp_asvs %>%
+  inner_join(taxonomy, by = "seqid") %>%
+  inner_join(boreZtp_metadata, by = "sample") %>%
+  group_by(common_name, Kingdom) %>%
+  summarise(total_count = sum(count), .groups = "drop") %>%
+  ungroup()
+
+# Identify the top 20 kingdom based on total counts across all common_name
+top_kingdom <- final_table %>%
+  group_by(Kingdom) %>%
+  summarise(total_kingdom_count = sum(total_count), .groups = "drop") %>%
+  arrange(desc(total_kingdom_count)) %>%
+  slice_head(n = 20) %>%
+  pull(Kingdom)
+
+# Categorize kingdom as "Top 20" or "Other"
+final_table <- final_table %>%
+  mutate(Kingdom = if_else(Kingdom %in% top_kingdom, Kingdom, "Other"),
+         Kingdom = if_else(is.na(Kingdom), "Other", Kingdom)) # Combine NA into "Other"
+
+# Summarize again to combine all "Other" counts
+final_table <- final_table %>%
+  group_by(common_name, Kingdom) %>%
+  summarise(total_count = sum(total_count), .groups = "drop")
+
+# Calculate relative abundances for each kingdom within each common_name
+final_table_relabs <- final_table %>%
+  group_by(common_name) %>%
+  mutate(relative_abundance = total_count / sum(total_count)) %>%
+  ungroup()
+
+# Reshape into wide format for absolute counts: row names = common_name, column names = Kingdom, values = total counts
+wide_table <- final_table %>%
+  pivot_wider(names_from = Kingdom, values_from = total_count, values_fill = 0)
+
+# Reshape into wide format for relative abundances: row names = common_name, column names = Kingdom, values = relative abundances
+wide_table_relabs <- final_table_relabs %>%
+  dplyr::select(common_name, Kingdom, relative_abundance) %>%
+  pivot_wider(names_from = Kingdom, values_from = relative_abundance, values_fill = 0)
+
+# Save outputs for inspection
+write_csv(wide_table, "Figures/boreZtp_commonname_kingdom_asv_counts.csv")
+write_csv(wide_table_relabs, "Figures/boreZtp_commonname_kingdom_relative_abundances.csv")
+
+# Print previews
+print(wide_table)
+print(wide_table_relabs)
+
+```
+
+#incubation 45 days  time point
+#Kingdom
+
+
+
+
+
+```{r}
+Inc45d_metadata <- metadata %>%
+  subset(groups == "Inc45d")
+
+
+Inc45d_ASVS_subset <- ASVs_decontam %>%
+  dplyr::select(c(seqid,
+            P30414_1068_S68,
+            P30414_1069_S69,
+            P30414_1070_S70,
+            P30414_1071_S71,
+            P30414_1072_S72,
+            P30414_1073_S73,
+            P30414_1074_S74,
+            P30414_1075_S75,
+            P30414_1055_S55,
+            P30414_1056_S56,
+            P30414_1057_S57,
+            P30414_1058_S58,
+            P30414_1066_S66,
+            P30414_1067_S67,
+            P25307_1002_S2,
+            P25307_1005_S5,
+            P25307_1008_S8,
+            P25307_1001_S1,
+            P25307_1004_S4,
+            P25307_1007_S7,
+            P25307_1003_S3,
+            P25307_1006_S6,
+            P25307_1009_S9,
+            P30414_1059_S59))
+
+Inc45d_asvs <-Inc45d_ASVS_subset%>%
+  gather(sample, count, 2:ncol(.)) %>% 
+  #filter(count > 0) %>%
+  group_by(sample) %>%
+  mutate(total_count = sum(count)) %>%
+  mutate(relab = count / total_count) %>%
+  filter(n() > 0) %>% 
+  ungroup()
+
+
+
+```
+
+
+
+```{r assign-top10-kingdom-to-taxonomy}
+# Start by finding the top 11 kingdom *on average* over the samples
+p <- Inc45d_asvs %>%
+  inner_join(taxonomy, by = 'seqid') %>%
+  group_by(Kingdom, sample) %>%
+  # Calculate the relative abundance of each kingdom in each sample
+  summarise(relab = sum(relab)) %>%
+  # Calculate the *mean* relative abundance of each kingdom over the samples
+  summarise(mean_relab = mean(relab)) %>%
+  ungroup() %>%
+  # Filter out non-assigned kingdom
+  filter(!is.na(Kingdom)) %>%
+  # Select the top 11
+  top_n(20, mean_relab)
+# Add this information to the taxonomy table as the column topkingdom
+taxonomy <- taxonomy_raw %>%
+  # Join in the top 10 table. *Important* with left join, otherwise you loose rows in the
+  # taxonomy table that do not appear in the top 11 table.
+  left_join(
+    p %>% 
+      # Duplicate the kingdom column, with the old name and as "topkingdom"
+      transmute(Kingdom, topkingdom = Kingdom),
+    by = 'Kingdom'
+  ) %>%
+  # Set topkingdom to 'Other' for those that were not among the top 11
+  replace_na(list('topkingdom' = 'Other'))
+```
+
+```{r}
+Inc45d_asvs %>%
+  left_join(taxonomy, by = 'seqid') %>%
+  group_by(sample, Kingdom) %>% summarise(relab = sum(relab)) %>% ungroup() %>%
+  spread(sample, relab, fill = 0) %>%
+  write_csv('Figures/Inc45d_asvs_topkingdom.csv')
+```
+
+
+```{r plot-top-kingdom}
+Inc45d_asvs %>%
+  inner_join(taxonomy, by = 'seqid') %>%
+  inner_join(Inc45d_metadata, by = "sample")%>%
+  group_by(topkingdom, sample, common_name, Your_sample_name, year, experiment, fig_name) %>% 
+  summarise(total_relab = sum(relab)) %>% 
+  ungroup() %>%
+  group_by(common_name) %>%
+  mutate(relab_adjusted = case_when(
+    common_name == "U-proj end sampling Blank 1 filtered" ~ total_relab / 2,
+    common_name == "U-proj end sampling filtered + Acetate" ~ total_relab / 2,
+    common_name == "U-proj end sampling Blank 1 unfiltered" ~ total_relab / 2,
+    common_name == "U-proj end sampling unfiltered + Acetate" ~ total_relab / 2,
+    common_name == "U-proj KFM02A End sampling 24/10-22 Control water" ~ total_relab / 2, 
+    common_name == "U-proj KFM02A End sampling 24/10-22 Unfilter + Acetat" ~ total_relab / 1,
+    common_name == "U-proj KFM02A End sampling 24/10-22 Unfilter + Acetat + media" ~ total_relab,
+    common_name == "Forsmark unfiltered end sampling DNA 13/12-22" ~ total_relab / 1,
+    common_name == "Forsmark filtered+Acetate end sampling DNA 13/12-22" ~ total_relab / 1, 
+    common_name == "Uproject_DNA_filter + acetate" ~ total_relab / 3,
+    common_name == "Uproject_DNA_filter + acetate + SRB" ~ total_relab / 3,
+    common_name == "Uproject_DNA_filter_water" ~ total_relab / 3,
+    common_name == "U-proj KFM02A End sampling 24/10-22 Filter + Acetat + media" ~ total_relab / 1)) %>% 
+
+  ggplot(aes(
+    x = fct_relevel(fig_name,rev(c( 
+      "FW 2021",
+      "FW 2022",
+      "FW 2023",
+      "FW/Ace 2021",
+      "FW/Ace 2022",
+      "FW/Ace 2023",
+      "FW/Ace/Med641 2022",
+      "FW/Ace/Med/SRB 2021",
+      "UW 2022",
+      "UW 2023",
+      "UW/Ace 2022",
+      "UW/Ace 2023",
+      "UW/Ace/Med641 2022"))), 
+    y = relab_adjusted, 
+    fill = fct_relevel(topkingdom, "Other" , after = Inf))) +
+  geom_col() +
+  #facet_grid(. ~ factor(year, levels = c("2021", "2022", "2023")), scales = "free_x", drop = TRUE) + #this line of code splits the figure by the year levels
+  scale_fill_manual(values = myColors) +
+  coord_flip() +
+  labs(title = "Top 20 Kingdom Inc45d")+
+  ylab("Relative Abundance")+
+  xlab("Your_sample_name")+
+  theme(
+   legend.position = 'bottom', legend.title = element_blank()) +
+  guides(fill = guide_legend(reverse = TRUE))
+    
+```
+
+```{r}
+ggsave("Figures/Uranium_magnus_StackedBar_Top_20_kingdom_Inc45d_averages_decontam.pdf",scale = 2, width = 18, height = 13, units = "cm")
+```
+
+
+
+```{r}
+# Merge boreZtp_asvs with taxonomy and metadata
+final_table <- Inc45d_asvs %>%
+  inner_join(taxonomy, by = "seqid") %>%
+  inner_join(Inc45d_metadata, by = "sample") %>%
+  group_by(common_name, Kingdom) %>%
+  summarise(total_count = sum(count), .groups = "drop") %>%
+  ungroup()
+
+# Identify the top 20 kingdom based on total counts across all common_name
+top_kingdom <- final_table %>%
+  group_by(Kingdom) %>%
+  summarise(total_kingdom_count = sum(total_count), .groups = "drop") %>%
+  arrange(desc(total_kingdom_count)) %>%
+  slice_head(n = 20) %>%
+  pull(Kingdom)
+
+# Categorize kingdom as "Top 20" or "Other"
+final_table <- final_table %>%
+  mutate(Kingdom = if_else(Kingdom %in% top_kingdom, Kingdom, "Other"),
+         Kingdom = if_else(is.na(Kingdom), "Other", Kingdom)) # Combine NA into "Other"
+
+# Summarize again to combine all "Other" counts
+final_table <- final_table %>%
+  group_by(common_name, Kingdom) %>%
+  summarise(total_count = sum(total_count), .groups = "drop")
+
+# Calculate relative abundances for each kingdom within each common_name
+final_table_relabs <- final_table %>%
+  group_by(common_name) %>%
+  mutate(relative_abundance = total_count / sum(total_count)) %>%
+  ungroup()
+
+# Reshape into wide format for absolute counts: row names = common_name, column names = Kingdom, values = total counts
+wide_table <- final_table %>%
+  pivot_wider(names_from = Kingdom, values_from = total_count, values_fill = 0)
+
+# Reshape into wide format for relative abundances: row names = common_name, column names = Kingdom, values = relative abundances
+wide_table_relabs <- final_table_relabs %>%
+  dplyr::select(common_name, Kingdom, relative_abundance) %>%
+  pivot_wider(names_from = Kingdom, values_from = relative_abundance, values_fill = 0)
+
+# Save outputs for inspection
+write_csv(wide_table, "Figures/Inc45d_commonname_kingdom_asv_counts.csv")
+write_csv(wide_table_relabs, "Figures/Inc45d_commonname_kingdom_relative_abundances.csv")
+
+# Print previews
+print(wide_table)
+print(wide_table_relabs)
+
+```
+
+
+
+
+#control
+
+#kingdom
+
+
+```{r}
+Control_metadata <- metadata %>%
+  subset(groups == "control") %>%
+  subset(common_name =="Uproject_Strain_Mix_DNA_control")
+
+
+Control_ASVS_subset <- ASVs_decontam %>%
+  dplyr::select(c(seqid,
+            #P25307_1013_S13,
+            #P25307_1014_S14,
+            #P25307_1015_S15,
+            P25307_1016_S16,
+            P25307_1017_S17,
+            P25307_1018_S18
+            #P30414_1060_S60,
+            #P30414_1061_S61
+            ))
+
+Control_asvs <-Control_ASVS_subset%>%
+  gather(sample, count, 2:ncol(.)) %>% 
+  #filter(count > 0) %>%
+  group_by(sample) %>% 
+  mutate(relab = count/sum(count)) %>% 
+  filter(n() > 0) %>% 
+  ungroup()
+
+
+
+```
+
+
+
+
+
+
+```{r assign-top10-kingdom-to-taxonomy}
+# Start by finding the top 11 kingdom *on average* over the samples
+p <- Control_asvs %>%
+  inner_join(taxonomy, by = 'seqid') %>%
+  group_by(Kingdom, sample) %>%
+  # Calculate the relative abundance of each kingdom in each sample
+  summarise(relab = sum(relab)) %>%
+  # Calculate the *mean* relative abundance of each kingdom over the samples
+  summarise(mean_relab = mean(relab)) %>%
+  ungroup() %>%
+  # Filter out non-assigned kingdom
+  filter(!is.na(Kingdom)) %>%
+  # Select the top 11
+  top_n(20, mean_relab)
+# Add this information to the taxonomy table as the column topkingdom
+taxonomy <- taxonomy_raw %>%
+  # Join in the top 10 table. *Important* with left join, otherwise you loose rows in the
+  # taxonomy table that do not appear in the top 11 table.
+  left_join(
+    p %>% 
+      # Duplicate the kingdom column, with the old name and as "topkingdom"
+      transmute(Kingdom, topkingdom = Kingdom),
+    by = 'Kingdom'
+  ) %>%
+  # Set topkingdom to 'Other' for those that were not among the top 11
+  replace_na(list('topkingdom' = 'Other'))
+```
+
+```{r}
+Control_asvs %>%
+  left_join(taxonomy, by = 'seqid') %>%
+  group_by(sample, Kingdom) %>% summarise(relab = sum(relab)) %>% ungroup() %>%
+  spread(sample, relab, fill = 0) %>%
+  write_csv('Figures/Control_asvs_topkingdom.csv')
+```
+
+
+```{r plot-top-kingdom}
+Control_asvs %>%
+  inner_join(taxonomy, by = 'seqid') %>%
+  inner_join(Control_metadata, by = "sample")%>%
+  group_by(topkingdom, sample, Your_sample_name, year, experiment,common_name)  %>% 
+  summarise(relab = sum(relab)) %>% 
+  ungroup()%>%
+  group_by(common_name) %>%
+  mutate(relab_adjusted = case_when(
+    #common_name == "Uproject_Mediamix_DNA_control" ~ relab / 3,
+    common_name == "Uproject_Strain_Mix_DNA_control" ~ relab / 3
+    #common_name == "U-proj KFM02A End sampling 24/10-22 Media 641" ~ relab / 1,
+    #common_name == "U-proj KFM02A End sampling 24/10-22 Acetate stock" ~ relab / 1
+    ))%>%
+  
+  ggplot(aes(
+    x = common_name,
+    y = relab_adjusted, 
+    fill = fct_relevel(topkingdom, "Other" , after = Inf))) +
+  geom_col() +
+  #facet_grid(. ~ factor(year, levels = c("2021", "2022", "2023")), scales = "free_x", drop = TRUE) + #this line of code splits the figure by the year levels
+  scale_fill_manual(values = myColors) +
+  coord_flip() +
+  labs(title = "Top 20 Kingdom Control")+
+  ylab("Relative Abundance")+
+  xlab("Your_sample_name")+
+  theme(
+   legend.position = 'bottom', legend.title = element_blank()) +
+  guides(fill = guide_legend(reverse = TRUE))
+    
+```
+
+```{r}
+ggsave("Figures/Uranium_magnus_StackedBar_Top_20_kingdom_Control_averages_decontam.pdf",scale = 2, width = 18, height = 13, units = "cm")
+```
+
+
+
+```{r}
+# Merge boreZtp_asvs with taxonomy and metadata
+final_table <- Control_asvs %>%
+  inner_join(taxonomy, by = "seqid") %>%
+  inner_join(Control_metadata, by = "sample") %>%
+  group_by(common_name, Kingdom) %>%
+  summarise(total_count = sum(count), .groups = "drop") %>%
+  ungroup()
+
+# Identify the top 20 kingdom based on total counts across all common_name
+top_kingdom <- final_table %>%
+  group_by(Kingdom) %>%
+  summarise(total_kingdom_count = sum(total_count), .groups = "drop") %>%
+  arrange(desc(total_kingdom_count)) %>%
+  slice_head(n = 20) %>%
+  pull(Kingdom)
+
+# Categorize kingdom as "Top 20" or "Other"
+final_table <- final_table %>%
+  mutate(Kingdom = if_else(Kingdom %in% top_kingdom, Kingdom, "Other"),
+         Kingdom = if_else(is.na(Kingdom), "Other", Kingdom)) # Combine NA into "Other"
+
+# Summarize again to combine all "Other" counts
+final_table <- final_table %>%
+  group_by(common_name, Kingdom) %>%
+  summarise(total_count = sum(total_count), .groups = "drop")
+
+# Calculate relative abundances for each kingdom within each common_name
+final_table_relabs <- final_table %>%
+  group_by(common_name) %>%
+  mutate(relative_abundance = total_count / sum(total_count)) %>%
+  ungroup()
+
+# Reshape into wide format for absolute counts: row names = common_name, column names = Kingdom, values = total counts
+wide_table <- final_table %>%
+  pivot_wider(names_from = Kingdom, values_from = total_count, values_fill = 0)
+
+# Reshape into wide format for relative abundances: row names = common_name, column names = Kingdom, values = relative abundances
+wide_table_relabs <- final_table_relabs %>%
+  dplyr::select(common_name, Kingdom, relative_abundance) %>%
+  pivot_wider(names_from = Kingdom, values_from = relative_abundance, values_fill = 0)
+
+# Save outputs for inspection
+write_csv(wide_table, "Figures/Control_commonname_kingdom_asv_counts.csv")
+write_csv(wide_table_relabs, "Figures/Control_commonname_kingdom_relative_abundances.csv")
+
+# Print previews
+print(wide_table)
+print(wide_table_relabs)
+
+```
+
+
+
+
+
+
+
+#Domain
+
+
+```{r}
+boreZtp_metadata <- metadata %>%
+  subset(groups == "boreZtp")
+
+
+boreZtp_ASVS_subset <- ASVs_decontam %>%
+  dplyr::select(c(seqid,
+            P25307_1010_S10, 
+            P25307_1021_S21,
+            P25307_1064_S64,
+            P25307_1065_S65,
+            P30414_1076_S76,
+            P30414_1077_S77,
+            P30414_1078_S78,
+            P30414_1079_S79,
+            P30414_1080_S80,
+            P30414_1062_S62,
+            P30414_1063_S63,
+            P30414_1064_S64,
+            P30414_1065_S65))
+
+
+
+boreZtp_asvs <-boreZtp_ASVS_subset%>%
+  gather(sample, count, 2:ncol(.)) %>% 
+  #filter(count > 0) %>%
+  group_by(sample) %>% 
+  mutate(relab = count/sum(count)) %>% 
+  filter(n() > 0) %>% 
+  ungroup()
+
+
+
+```
+
+
+
+
+
+
+```{r assign-top10-domain-to-taxonomy}
+# Start by finding the top 11 domain *on average* over the samples
+p <- boreZtp_asvs %>%
+  inner_join(taxonomy, by = 'seqid') %>%
+  group_by(Domain, sample) %>%
+  # Calculate the relative abundance of each domain in each sample
+  summarise(relab = sum(relab)) %>%
+  # Calculate the *mean* relative abundance of each domain over the samples
+  summarise(mean_relab = sum(relab)) %>%
+  ungroup() %>%
+  # Filter out non-assigned domain
+  filter(!is.na(Domain)) %>%
+  # Select the top 11
+  top_n(20, mean_relab)
+# Add this information to the taxonomy table as the column topdomain
+taxonomy <- taxonomy_raw %>%
+  # Join in the top 10 table. *Important* with left join, otherwise you loose rows in the
+  # taxonomy table that do not appear in the top 11 table.
+  left_join(
+    p %>% 
+      # Duplicate the domain column, with the old name and as "topdomain"
+      transmute(Domain, topdomain = Domain),
+    by = 'Domain'
+  ) %>%
+  # Set topdomain to 'Other' for those that were not among the top 11
+  replace_na(list('topdomain' = 'Other'))
+```
+
+```{r}
+boreZtp_asvs %>%
+  left_join(taxonomy, by = 'seqid') %>%
+  group_by(sample, Domain) %>% summarise(relab = sum(relab)) %>% ungroup() %>%
+  spread(sample, relab, fill = 0) %>%
+  write_csv('Figures/boreZtp_asvs_topdomain.csv')
+```
+   
+
+```{r plot-top-domain}
+boreZtp_asvs %>%
+  inner_join(taxonomy, by = 'seqid') %>%
+  inner_join(boreZtp_metadata, by = "sample")%>%
+  group_by(topdomain, sample, Your_sample_name, year, experiment,common_name, fig_name) %>%
+  summarise(relab = sum(relab)) %>% 
+  ungroup() %>%
+  group_by(common_name) %>%
+  mutate(relab_adjusted = case_when(
+    common_name == "Uproject_KFM02A_DNA" ~ relab / 4,
+    common_name == "U-proj KFM02A 6/6/2022 DNA" ~ relab / 5,
+    common_name == "U-proj KFM02A 21/2-2023 DNA" ~ relab / 4
+  )) %>%
+  ggplot(aes(
+    x = fct_relevel(fig_name,rev(c( "ZTP 2021" , "ZTP 2022" , "ZTP 2023"))),
+    y = relab_adjusted, 
+    fill = fct_relevel(topdomain, "Other" , after = Inf))) +
+  geom_col() +
+  #facet_grid(. ~ factor(year, levels = c("2021", "2022", "2023")), scales = "free_x", drop = TRUE) + #this line of code splits the figure by the year levels
+  scale_fill_manual(values = myColors) +
+  coord_flip() +
+  labs(title = "Top 20 Domain BoreZtp")+
+  ylab("Relative Abundance")+
+  xlab("Your_sample_name")+
+  theme(
+   legend.position = 'bottom', legend.title = element_blank()) +
+  guides(fill = guide_legend(reverse = TRUE))
+    
+```
+
+```{r}
+ggsave("Figures/Uranium_magnus_StackedBar_Top_20_domain_boreZtp_averages_decontam.pdf",scale = 2, width = 18, height = 13, units = "cm")
+```
+
+
+```{r}
+# Merge boreZtp_asvs with taxonomy and metadata
+final_table <- boreZtp_asvs %>%
+  inner_join(taxonomy, by = "seqid") %>%
+  inner_join(boreZtp_metadata, by = "sample") %>%
+  group_by(common_name, Domain) %>%
+  summarise(total_count = sum(count), .groups = "drop") %>%
+  ungroup()
+
+# Identify the top 20 domain based on total counts across all common_name
+top_domain <- final_table %>%
+  group_by(Domain) %>%
+  summarise(total_domain_count = sum(total_count), .groups = "drop") %>%
+  arrange(desc(total_domain_count)) %>%
+  slice_head(n = 20) %>%
+  pull(Domain)
+
+# Categorize domain as "Top 20" or "Other"
+final_table <- final_table %>%
+  mutate(Domain = if_else(Domain %in% top_domain, Domain, "Other"),
+         Domain = if_else(is.na(Domain), "Other", Domain)) # Combine NA into "Other"
+
+# Summarize again to combine all "Other" counts
+final_table <- final_table %>%
+  group_by(common_name, Domain) %>%
+  summarise(total_count = sum(total_count), .groups = "drop")
+
+# Calculate relative abundances for each domain within each common_name
+final_table_relabs <- final_table %>%
+  group_by(common_name) %>%
+  mutate(relative_abundance = total_count / sum(total_count)) %>%
+  ungroup()
+
+# Reshape into wide format for absolute counts: row names = common_name, column names = Domain, values = total counts
+wide_table <- final_table %>%
+  pivot_wider(names_from = Domain, values_from = total_count, values_fill = 0)
+
+# Reshape into wide format for relative abundances: row names = common_name, column names = Domain, values = relative abundances
+wide_table_relabs <- final_table_relabs %>%
+  dplyr::select(common_name, Domain, relative_abundance) %>%
+  pivot_wider(names_from = Domain, values_from = relative_abundance, values_fill = 0)
+
+# Save outputs for inspection
+write_csv(wide_table, "Figures/boreZtp_commonname_domain_asv_counts.csv")
+write_csv(wide_table_relabs, "Figures/boreZtp_commonname_domain_relative_abundances.csv")
+
+# Print previews
+print(wide_table)
+print(wide_table_relabs)
+
+```
+
+#incubation 45 days  time point
+#Domain
+
+
+
+
+
+```{r}
+Inc45d_metadata <- metadata %>%
+  subset(groups == "Inc45d")
+
+
+Inc45d_ASVS_subset <- ASVs_decontam %>%
+  dplyr::select(c(seqid,
+            P30414_1068_S68,
+            P30414_1069_S69,
+            P30414_1070_S70,
+            P30414_1071_S71,
+            P30414_1072_S72,
+            P30414_1073_S73,
+            P30414_1074_S74,
+            P30414_1075_S75,
+            P30414_1055_S55,
+            P30414_1056_S56,
+            P30414_1057_S57,
+            P30414_1058_S58,
+            P30414_1066_S66,
+            P30414_1067_S67,
+            P25307_1002_S2,
+            P25307_1005_S5,
+            P25307_1008_S8,
+            P25307_1001_S1,
+            P25307_1004_S4,
+            P25307_1007_S7,
+            P25307_1003_S3,
+            P25307_1006_S6,
+            P25307_1009_S9,
+            P30414_1059_S59))
+
+Inc45d_asvs <-Inc45d_ASVS_subset%>%
+  gather(sample, count, 2:ncol(.)) %>% 
+  #filter(count > 0) %>%
+  group_by(sample) %>%
+  mutate(total_count = sum(count)) %>%
+  mutate(relab = count / total_count) %>%
+  filter(n() > 0) %>% 
+  ungroup()
+
+
+
+```
+
+
+
+```{r assign-top10-domain-to-taxonomy}
+# Start by finding the top 11 domain *on average* over the samples
+p <- Inc45d_asvs %>%
+  inner_join(taxonomy, by = 'seqid') %>%
+  group_by(Domain, sample) %>%
+  # Calculate the relative abundance of each domain in each sample
+  summarise(relab = sum(relab)) %>%
+  # Calculate the *mean* relative abundance of each domain over the samples
+  summarise(mean_relab = mean(relab)) %>%
+  ungroup() %>%
+  # Filter out non-assigned domain
+  filter(!is.na(Domain)) %>%
+  # Select the top 11
+  top_n(20, mean_relab)
+# Add this information to the taxonomy table as the column topdomain
+taxonomy <- taxonomy_raw %>%
+  # Join in the top 10 table. *Important* with left join, otherwise you loose rows in the
+  # taxonomy table that do not appear in the top 11 table.
+  left_join(
+    p %>% 
+      # Duplicate the domain column, with the old name and as "topdomain"
+      transmute(Domain, topdomain = Domain),
+    by = 'Domain'
+  ) %>%
+  # Set topdomain to 'Other' for those that were not among the top 11
+  replace_na(list('topdomain' = 'Other'))
+```
+
+```{r}
+Inc45d_asvs %>%
+  left_join(taxonomy, by = 'seqid') %>%
+  group_by(sample, Domain) %>% summarise(relab = sum(relab)) %>% ungroup() %>%
+  spread(sample, relab, fill = 0) %>%
+  write_csv('Figures/Inc45d_asvs_topdomain.csv')
+```
+
+
+```{r plot-top-domain}
+Inc45d_asvs %>%
+  inner_join(taxonomy, by = 'seqid') %>%
+  inner_join(Inc45d_metadata, by = "sample")%>%
+  group_by(topdomain, sample, common_name, Your_sample_name, year, experiment, fig_name) %>% 
+  summarise(total_relab = sum(relab)) %>% 
+  ungroup() %>%
+  group_by(common_name) %>%
+  mutate(relab_adjusted = case_when(
+    common_name == "U-proj end sampling Blank 1 filtered" ~ total_relab / 2,
+    common_name == "U-proj end sampling filtered + Acetate" ~ total_relab / 2,
+    common_name == "U-proj end sampling Blank 1 unfiltered" ~ total_relab / 2,
+    common_name == "U-proj end sampling unfiltered + Acetate" ~ total_relab / 2,
+    common_name == "U-proj KFM02A End sampling 24/10-22 Control water" ~ total_relab / 2, 
+    common_name == "U-proj KFM02A End sampling 24/10-22 Unfilter + Acetat" ~ total_relab / 1,
+    common_name == "U-proj KFM02A End sampling 24/10-22 Unfilter + Acetat + media" ~ total_relab,
+    common_name == "Forsmark unfiltered end sampling DNA 13/12-22" ~ total_relab / 1,
+    common_name == "Forsmark filtered+Acetate end sampling DNA 13/12-22" ~ total_relab / 1, 
+    common_name == "Uproject_DNA_filter + acetate" ~ total_relab / 3,
+    common_name == "Uproject_DNA_filter + acetate + SRB" ~ total_relab / 3,
+    common_name == "Uproject_DNA_filter_water" ~ total_relab / 3,
+    common_name == "U-proj KFM02A End sampling 24/10-22 Filter + Acetat + media" ~ total_relab / 1)) %>% 
+
+  ggplot(aes(
+    x = fct_relevel(fig_name,rev(c( 
+      "FW 2021",
+      "FW 2022",
+      "FW 2023",
+      "FW/Ace 2021",
+      "FW/Ace 2022",
+      "FW/Ace 2023",
+      "FW/Ace/Med641 2022",
+      "FW/Ace/Med/SRB 2021",
+      "UW 2022",
+      "UW 2023",
+      "UW/Ace 2022",
+      "UW/Ace 2023",
+      "UW/Ace/Med641 2022"))), 
+    y = relab_adjusted, 
+    fill = fct_relevel(topdomain, "Other" , after = Inf))) +
+  geom_col() +
+  #facet_grid(. ~ factor(year, levels = c("2021", "2022", "2023")), scales = "free_x", drop = TRUE) + #this line of code splits the figure by the year levels
+  scale_fill_manual(values = myColors) +
+  coord_flip() +
+  labs(title = "Top 20 Domain Inc45d")+
+  ylab("Relative Abundance")+
+  xlab("Your_sample_name")+
+  theme(
+   legend.position = 'bottom', legend.title = element_blank()) +
+  guides(fill = guide_legend(reverse = TRUE))
+    
+```
+
+```{r}
+ggsave("Figures/Uranium_magnus_StackedBar_Top_20_domain_Inc45d_averages_decontam.pdf",scale = 2, width = 18, height = 13, units = "cm")
+```
+
+
+
+```{r}
+# Merge boreZtp_asvs with taxonomy and metadata
+final_table <- Inc45d_asvs %>%
+  inner_join(taxonomy, by = "seqid") %>%
+  inner_join(Inc45d_metadata, by = "sample") %>%
+  group_by(common_name, Domain) %>%
+  summarise(total_count = sum(count), .groups = "drop") %>%
+  ungroup()
+
+# Identify the top 20 domain based on total counts across all common_name
+top_domain <- final_table %>%
+  group_by(Domain) %>%
+  summarise(total_domain_count = sum(total_count), .groups = "drop") %>%
+  arrange(desc(total_domain_count)) %>%
+  slice_head(n = 20) %>%
+  pull(Domain)
+
+# Categorize domain as "Top 20" or "Other"
+final_table <- final_table %>%
+  mutate(Domain = if_else(Domain %in% top_domain, Domain, "Other"),
+         Domain = if_else(is.na(Domain), "Other", Domain)) # Combine NA into "Other"
+
+# Summarize again to combine all "Other" counts
+final_table <- final_table %>%
+  group_by(common_name, Domain) %>%
+  summarise(total_count = sum(total_count), .groups = "drop")
+
+# Calculate relative abundances for each domain within each common_name
+final_table_relabs <- final_table %>%
+  group_by(common_name) %>%
+  mutate(relative_abundance = total_count / sum(total_count)) %>%
+  ungroup()
+
+# Reshape into wide format for absolute counts: row names = common_name, column names = Domain, values = total counts
+wide_table <- final_table %>%
+  pivot_wider(names_from = Domain, values_from = total_count, values_fill = 0)
+
+# Reshape into wide format for relative abundances: row names = common_name, column names = Domain, values = relative abundances
+wide_table_relabs <- final_table_relabs %>%
+  dplyr::select(common_name, Domain, relative_abundance) %>%
+  pivot_wider(names_from = Domain, values_from = relative_abundance, values_fill = 0)
+
+# Save outputs for inspection
+write_csv(wide_table, "Figures/Inc45d_commonname_domain_asv_counts.csv")
+write_csv(wide_table_relabs, "Figures/Inc45d_commonname_domain_relative_abundances.csv")
+
+# Print previews
+print(wide_table)
+print(wide_table_relabs)
+
+```
+
+
+
+
+#control
+
+#domain
+
+
+```{r}
+Control_metadata <- metadata %>%
+  subset(groups == "control") %>%
+  subset(common_name =="Uproject_Strain_Mix_DNA_control")
+
+
+Control_ASVS_subset <- ASVs_decontam %>%
+  dplyr::select(c(seqid,
+            #P25307_1013_S13,
+            #P25307_1014_S14,
+            #P25307_1015_S15,
+            P25307_1016_S16,
+            P25307_1017_S17,
+            P25307_1018_S18
+            #P30414_1060_S60,
+            #P30414_1061_S61
+            ))
+
+Control_asvs <-Control_ASVS_subset%>%
+  gather(sample, count, 2:ncol(.)) %>% 
+  #filter(count > 0) %>%
+  group_by(sample) %>% 
+  mutate(relab = count/sum(count)) %>% 
+  filter(n() > 0) %>% 
+  ungroup()
+
+
+
+```
+
+
+
+
+
+
+```{r assign-top10-domain-to-taxonomy}
+# Start by finding the top 11 domain *on average* over the samples
+p <- Control_asvs %>%
+  inner_join(taxonomy, by = 'seqid') %>%
+  group_by(Domain, sample) %>%
+  # Calculate the relative abundance of each domain in each sample
+  summarise(relab = sum(relab)) %>%
+  # Calculate the *mean* relative abundance of each domain over the samples
+  summarise(mean_relab = mean(relab)) %>%
+  ungroup() %>%
+  # Filter out non-assigned domain
+  filter(!is.na(Domain)) %>%
+  # Select the top 11
+  top_n(20, mean_relab)
+# Add this information to the taxonomy table as the column topdomain
+taxonomy <- taxonomy_raw %>%
+  # Join in the top 10 table. *Important* with left join, otherwise you loose rows in the
+  # taxonomy table that do not appear in the top 11 table.
+  left_join(
+    p %>% 
+      # Duplicate the domain column, with the old name and as "topdomain"
+      transmute(Domain, topdomain = Domain),
+    by = 'Domain'
+  ) %>%
+  # Set topdomain to 'Other' for those that were not among the top 11
+  replace_na(list('topdomain' = 'Other'))
+```
+
+```{r}
+Control_asvs %>%
+  left_join(taxonomy, by = 'seqid') %>%
+  group_by(sample, Domain) %>% summarise(relab = sum(relab)) %>% ungroup() %>%
+  spread(sample, relab, fill = 0) %>%
+  write_csv('Figures/Control_asvs_topdomain.csv')
+```
+
+
+```{r plot-top-domain}
+Control_asvs %>%
+  inner_join(taxonomy, by = 'seqid') %>%
+  inner_join(Control_metadata, by = "sample")%>%
+  group_by(topdomain, sample, Your_sample_name, year, experiment,common_name)  %>% 
+  summarise(relab = sum(relab)) %>% 
+  ungroup()%>%
+  group_by(common_name) %>%
+  mutate(relab_adjusted = case_when(
+    #common_name == "Uproject_Mediamix_DNA_control" ~ relab / 3,
+    common_name == "Uproject_Strain_Mix_DNA_control" ~ relab / 3
+    #common_name == "U-proj KFM02A End sampling 24/10-22 Media 641" ~ relab / 1,
+    #common_name == "U-proj KFM02A End sampling 24/10-22 Acetate stock" ~ relab / 1
+    ))%>%
+  
+  ggplot(aes(
+    x = common_name,
+    y = relab_adjusted, 
+    fill = fct_relevel(topdomain, "Other" , after = Inf))) +
+  geom_col() +
+  #facet_grid(. ~ factor(year, levels = c("2021", "2022", "2023")), scales = "free_x", drop = TRUE) + #this line of code splits the figure by the year levels
+  scale_fill_manual(values = myColors) +
+  coord_flip() +
+  labs(title = "Top 20 Domain Control")+
+  ylab("Relative Abundance")+
+  xlab("Your_sample_name")+
+  theme(
+   legend.position = 'bottom', legend.title = element_blank()) +
+  guides(fill = guide_legend(reverse = TRUE))
+    
+```
+
+```{r}
+ggsave("Figures/Uranium_magnus_StackedBar_Top_20_domain_Control_averages_decontam.pdf",scale = 2, width = 18, height = 13, units = "cm")
+```
+
+
+
+```{r}
+# Merge boreZtp_asvs with taxonomy and metadata
+final_table <- Control_asvs %>%
+  inner_join(taxonomy, by = "seqid") %>%
+  inner_join(Control_metadata, by = "sample") %>%
+  group_by(common_name, Domain) %>%
+  summarise(total_count = sum(count), .groups = "drop") %>%
+  ungroup()
+
+# Identify the top 20 domain based on total counts across all common_name
+top_domain <- final_table %>%
+  group_by(Domain) %>%
+  summarise(total_domain_count = sum(total_count), .groups = "drop") %>%
+  arrange(desc(total_domain_count)) %>%
+  slice_head(n = 20) %>%
+  pull(Domain)
+
+# Categorize domain as "Top 20" or "Other"
+final_table <- final_table %>%
+  mutate(Domain = if_else(Domain %in% top_domain, Domain, "Other"),
+         Domain = if_else(is.na(Domain), "Other", Domain)) # Combine NA into "Other"
+
+# Summarize again to combine all "Other" counts
+final_table <- final_table %>%
+  group_by(common_name, Domain) %>%
+  summarise(total_count = sum(total_count), .groups = "drop")
+
+# Calculate relative abundances for each domain within each common_name
+final_table_relabs <- final_table %>%
+  group_by(common_name) %>%
+  mutate(relative_abundance = total_count / sum(total_count)) %>%
+  ungroup()
+
+# Reshape into wide format for absolute counts: row names = common_name, column names = Domain, values = total counts
+wide_table <- final_table %>%
+  pivot_wider(names_from = Domain, values_from = total_count, values_fill = 0)
+
+# Reshape into wide format for relative abundances: row names = common_name, column names = Domain, values = relative abundances
+wide_table_relabs <- final_table_relabs %>%
+  dplyr::select(common_name, Domain, relative_abundance) %>%
+  pivot_wider(names_from = Domain, values_from = relative_abundance, values_fill = 0)
+
+# Save outputs for inspection
+write_csv(wide_table, "Figures/Control_commonname_domain_asv_counts.csv")
+write_csv(wide_table_relabs, "Figures/Control_commonname_domain_relative_abundances.csv")
+
+# Print previews
+print(wide_table)
+print(wide_table_relabs)
+
+```
+
+
+
+
+
+
+
+
+#Genus
+
+
+
+
+
+```{r}
+boreZtp_metadata <- metadata %>%
+  subset(groups == "boreZtp")
+
+
+boreZtp_ASVS_subset <- ASVs_decontam %>%
+  dplyr::select(c(seqid,
+            P25307_1010_S10, 
+            P25307_1021_S21,
+            P25307_1064_S64,
+            P25307_1065_S65,
+            P30414_1076_S76,
+            P30414_1077_S77,
+            P30414_1078_S78,
+            P30414_1079_S79,
+            P30414_1080_S80,
+            P30414_1062_S62,
+            P30414_1063_S63,
+            P30414_1064_S64,
+            P30414_1065_S65))
+
+
+
+boreZtp_asvs <-boreZtp_ASVS_subset%>%
+  gather(sample, count, 2:ncol(.)) %>% 
+  #filter(count > 0) %>%
+  group_by(sample) %>% 
+  mutate(relab = count/sum(count)) %>% 
+  filter(n() > 0) %>% 
+  ungroup()
+
+
+
+```
+
+
+
+
+
+
+```{r assign-top10-genus-to-taxonomy}
+# Start by finding the top 11 genus *on average* over the samples
+p <- boreZtp_asvs %>%
+  inner_join(taxonomy, by = 'seqid') %>%
+  group_by(Genus, sample) %>%
+  # Calculate the relative abundance of each genus in each sample
+  summarise(relab = sum(relab)) %>%
+  # Calculate the *mean* relative abundance of each genus over the samples
+  summarise(mean_relab = sum(relab)) %>%
+  ungroup() %>%
+  # Filter out non-assigned genus
+  filter(!is.na(Genus)) %>%
+  # Select the top 11
+  top_n(20, mean_relab)
+# Add this information to the taxonomy table as the column topgenus
+taxonomy <- taxonomy_raw %>%
+  # Join in the top 10 table. *Important* with left join, otherwise you loose rows in the
+  # taxonomy table that do not appear in the top 11 table.
+  left_join(
+    p %>% 
+      # Duplicate the genus column, with the old name and as "topgenus"
+      transmute(Genus, topgenus = Genus),
+    by = 'Genus'
+  ) %>%
+  # Set topgenus to 'Other' for those that were not among the top 11
+  replace_na(list('topgenus' = 'Other'))
+```
+
+```{r}
+boreZtp_asvs %>%
+  left_join(taxonomy, by = 'seqid') %>%
+  group_by(sample, Genus) %>% summarise(relab = sum(relab)) %>% ungroup() %>%
+  spread(sample, relab, fill = 0) %>%
+  write_csv('Figures/boreZtp_asvs_topgenus.csv')
+```
+   
+
+```{r plot-top-genus}
+boreZtp_asvs %>%
+  inner_join(taxonomy, by = 'seqid') %>%
+  inner_join(boreZtp_metadata, by = "sample")%>%
+  group_by(topgenus, sample, Your_sample_name, year, experiment,common_name, fig_name) %>%
+  summarise(relab = sum(relab)) %>% 
+  ungroup() %>%
+  group_by(common_name) %>%
+  mutate(relab_adjusted = case_when(
+    common_name == "Uproject_KFM02A_DNA" ~ relab / 4,
+    common_name == "U-proj KFM02A 6/6/2022 DNA" ~ relab / 5,
+    common_name == "U-proj KFM02A 21/2-2023 DNA" ~ relab / 4
+  )) %>%
+  ggplot(aes(
+    x = fct_relevel(fig_name,rev(c( "ZTP 2021" , "ZTP 2022" , "ZTP 2023"))),
+    y = relab_adjusted, 
+    fill = fct_relevel(topgenus, "Other" , after = Inf))) +
+  geom_col() +
+  #facet_grid(. ~ factor(year, levels = c("2021", "2022", "2023")), scales = "free_x", drop = TRUE) + #this line of code splits the figure by the year levels
+  scale_fill_manual(values = myColors) +
+  coord_flip() +
+  labs(title = "Top 20 Genus BoreZtp")+
+  ylab("Relative Abundance")+
+  xlab("Your_sample_name")+
+  theme(
+   legend.position = 'bottom', legend.title = element_blank()) +
+  guides(fill = guide_legend(reverse = TRUE))
+    
+```
+
+```{r}
+ggsave("Figures/Uranium_magnus_StackedBar_Top_20_genus_boreZtp_averages_decontam.pdf",scale = 2, width = 18, height = 13, units = "cm")
+```
+
+
+```{r}
+# Merge boreZtp_asvs with taxonomy and metadata
+final_table <- boreZtp_asvs %>%
+  inner_join(taxonomy, by = "seqid") %>%
+  inner_join(boreZtp_metadata, by = "sample") %>%
+  group_by(common_name, Genus) %>%
+  summarise(total_count = sum(count), .groups = "drop") %>%
+  ungroup()
+
+# Identify the top 20 genera based on total counts across all common_name
+top_genera <- final_table %>%
+  group_by(Genus) %>%
+  summarise(total_genus_count = sum(total_count), .groups = "drop") %>%
+  arrange(desc(total_genus_count)) %>%
+  slice_head(n = 20) %>%
+  pull(Genus)
+
+# Categorize genera as "Top 20" or "Other"
+final_table <- final_table %>%
+  mutate(Genus = if_else(Genus %in% top_genera, Genus, "Other"),
+         Genus = if_else(is.na(Genus), "Other", Genus)) # Combine NA into "Other"
+
+# Summarize again to combine all "Other" counts
+final_table <- final_table %>%
+  group_by(common_name, Genus) %>%
+  summarise(total_count = sum(total_count), .groups = "drop")
+
+# Calculate relative abundances for each genus within each common_name
+final_table_relabs <- final_table %>%
+  group_by(common_name) %>%
+  mutate(relative_abundance = total_count / sum(total_count)) %>%
+  ungroup()
+
+# Reshape into wide format for absolute counts: row names = common_name, column names = Genus, values = total counts
+wide_table <- final_table %>%
+  pivot_wider(names_from = Genus, values_from = total_count, values_fill = 0)
+
+# Reshape into wide format for relative abundances: row names = common_name, column names = Genus, values = relative abundances
+wide_table_relabs <- final_table_relabs %>%
+  dplyr::select(common_name, Genus, relative_abundance) %>%
+  pivot_wider(names_from = Genus, values_from = relative_abundance, values_fill = 0)
+
+# Save outputs for inspection
+write_csv(wide_table, "Figures/boreZtp_commonname_genus_asv_counts.csv")
+write_csv(wide_table_relabs, "Figures/boreZtp_commonname_genus_relative_abundances.csv")
+
+# Print previews
+print(wide_table)
+print(wide_table_relabs)
+
+```
+
+#incubation 45 days  time point
+#Genus
+
+
+
+
+
+```{r}
+Inc45d_metadata <- metadata %>%
+  subset(groups == "Inc45d")
+
+
+Inc45d_ASVS_subset <- ASVs_decontam %>%
+  dplyr::select(c(seqid,
+            P30414_1068_S68,
+            P30414_1069_S69,
+            P30414_1070_S70,
+            P30414_1071_S71,
+            P30414_1072_S72,
+            P30414_1073_S73,
+            P30414_1074_S74,
+            P30414_1075_S75,
+            P30414_1055_S55,
+            P30414_1056_S56,
+            P30414_1057_S57,
+            P30414_1058_S58,
+            P30414_1066_S66,
+            P30414_1067_S67,
+            P25307_1002_S2,
+            P25307_1005_S5,
+            P25307_1008_S8,
+            P25307_1001_S1,
+            P25307_1004_S4,
+            P25307_1007_S7,
+            P25307_1003_S3,
+            P25307_1006_S6,
+            P25307_1009_S9,
+            P30414_1059_S59))
+
+Inc45d_asvs <-Inc45d_ASVS_subset%>%
+  gather(sample, count, 2:ncol(.)) %>% 
+  #filter(count > 0) %>%
+  group_by(sample) %>%
+  mutate(total_count = sum(count)) %>%
+  mutate(relab = count / total_count) %>%
+  filter(n() > 0) %>% 
+  ungroup()
+
+
+
+```
+
+
+
+```{r assign-top10-genus-to-taxonomy}
+# Start by finding the top 11 genus *on average* over the samples
+p <- Inc45d_asvs %>%
+  inner_join(taxonomy, by = 'seqid') %>%
+  group_by(Genus, sample) %>%
+  # Calculate the relative abundance of each genus in each sample
+  summarise(relab = sum(relab)) %>%
+  # Calculate the *mean* relative abundance of each genus over the samples
+  summarise(mean_relab = mean(relab)) %>%
+  ungroup() %>%
+  # Filter out non-assigned genus
+  filter(!is.na(Genus)) %>%
+  # Select the top 11
+  top_n(20, mean_relab)
+# Add this information to the taxonomy table as the column topgenus
+taxonomy <- taxonomy_raw %>%
+  # Join in the top 10 table. *Important* with left join, otherwise you loose rows in the
+  # taxonomy table that do not appear in the top 11 table.
+  left_join(
+    p %>% 
+      # Duplicate the genus column, with the old name and as "topgenus"
+      transmute(Genus, topgenus = Genus),
+    by = 'Genus'
+  ) %>%
+  # Set topgenus to 'Other' for those that were not among the top 11
+  replace_na(list('topgenus' = 'Other'))
+```
+
+```{r}
+Inc45d_asvs %>%
+  left_join(taxonomy, by = 'seqid') %>%
+  group_by(sample, Genus) %>% summarise(relab = sum(relab)) %>% ungroup() %>%
+  spread(sample, relab, fill = 0) %>%
+  write_csv('Figures/Inc45d_asvs_topgenus.csv')
+```
+
+
+```{r plot-top-genus}
+Inc45d_asvs %>%
+  inner_join(taxonomy, by = 'seqid') %>%
+  inner_join(Inc45d_metadata, by = "sample")%>%
+  group_by(topgenus, sample, common_name, Your_sample_name, year, experiment, fig_name) %>% 
+  summarise(total_relab = sum(relab)) %>% 
+  ungroup() %>%
+  group_by(common_name) %>%
+  mutate(relab_adjusted = case_when(
+    common_name == "U-proj end sampling Blank 1 filtered" ~ total_relab / 2,
+    common_name == "U-proj end sampling filtered + Acetate" ~ total_relab / 2,
+    common_name == "U-proj end sampling Blank 1 unfiltered" ~ total_relab / 2,
+    common_name == "U-proj end sampling unfiltered + Acetate" ~ total_relab / 2,
+    common_name == "U-proj KFM02A End sampling 24/10-22 Control water" ~ total_relab / 2, 
+    common_name == "U-proj KFM02A End sampling 24/10-22 Unfilter + Acetat" ~ total_relab / 1,
+    common_name == "U-proj KFM02A End sampling 24/10-22 Unfilter + Acetat + media" ~ total_relab,
+    common_name == "Forsmark unfiltered end sampling DNA 13/12-22" ~ total_relab / 1,
+    common_name == "Forsmark filtered+Acetate end sampling DNA 13/12-22" ~ total_relab / 1, 
+    common_name == "Uproject_DNA_filter + acetate" ~ total_relab / 3,
+    common_name == "Uproject_DNA_filter + acetate + SRB" ~ total_relab / 3,
+    common_name == "Uproject_DNA_filter_water" ~ total_relab / 3,
+    common_name == "U-proj KFM02A End sampling 24/10-22 Filter + Acetat + media" ~ total_relab / 1)) %>% 
+
+  ggplot(aes(
+    x = fct_relevel(fig_name,rev(c( 
+      "FW 2021",
+      "FW 2022",
+      "FW 2023",
+      "FW/Ace 2021",
+      "FW/Ace 2022",
+      "FW/Ace 2023",
+      "FW/Ace/Med641 2022",
+      "FW/Ace/Med/SRB 2021",
+      "UW 2022",
+      "UW 2023",
+      "UW/Ace 2022",
+      "UW/Ace 2023",
+      "UW/Ace/Med641 2022"))), 
+    y = relab_adjusted, 
+    fill = fct_relevel(topgenus, "Other" , after = Inf))) +
+  geom_col() +
+  #facet_grid(. ~ factor(year, levels = c("2021", "2022", "2023")), scales = "free_x", drop = TRUE) + #this line of code splits the figure by the year levels
+  scale_fill_manual(values = myColors) +
+  coord_flip() +
+  labs(title = "Top 20 Genus Inc45d")+
+  ylab("Relative Abundance")+
+  xlab("Your_sample_name")+
+  theme(
+   legend.position = 'bottom', legend.title = element_blank()) +
+  guides(fill = guide_legend(reverse = TRUE))
+    
+```
+
+```{r}
+ggsave("Figures/Uranium_magnus_StackedBar_Top_20_genus_Inc45d_averages_decontam.pdf",scale = 2, width = 18, height = 13, units = "cm")
+```
+
+
+
+```{r}
+# Merge boreZtp_asvs with taxonomy and metadata
+final_table <- Inc45d_asvs %>%
+  inner_join(taxonomy, by = "seqid") %>%
+  inner_join(Inc45d_metadata, by = "sample") %>%
+  group_by(common_name, Genus) %>%
+  summarise(total_count = sum(count), .groups = "drop") %>%
+  ungroup()
+
+# Identify the top 20 genera based on total counts across all common_name
+top_genera <- final_table %>%
+  group_by(Genus) %>%
+  summarise(total_genus_count = sum(total_count), .groups = "drop") %>%
+  arrange(desc(total_genus_count)) %>%
+  slice_head(n = 20) %>%
+  pull(Genus)
+
+# Categorize genera as "Top 20" or "Other"
+final_table <- final_table %>%
+  mutate(Genus = if_else(Genus %in% top_genera, Genus, "Other"),
+         Genus = if_else(is.na(Genus), "Other", Genus)) # Combine NA into "Other"
+
+# Summarize again to combine all "Other" counts
+final_table <- final_table %>%
+  group_by(common_name, Genus) %>%
+  summarise(total_count = sum(total_count), .groups = "drop")
+
+# Calculate relative abundances for each genus within each common_name
+final_table_relabs <- final_table %>%
+  group_by(common_name) %>%
+  mutate(relative_abundance = total_count / sum(total_count)) %>%
+  ungroup()
+
+# Reshape into wide format for absolute counts: row names = common_name, column names = Genus, values = total counts
+wide_table <- final_table %>%
+  pivot_wider(names_from = Genus, values_from = total_count, values_fill = 0)
+
+# Reshape into wide format for relative abundances: row names = common_name, column names = Genus, values = relative abundances
+wide_table_relabs <- final_table_relabs %>%
+  dplyr::select(common_name, Genus, relative_abundance) %>%
+  pivot_wider(names_from = Genus, values_from = relative_abundance, values_fill = 0)
+
+# Save outputs for inspection
+write_csv(wide_table, "Figures/Inc45d_commonname_genus_asv_counts.csv")
+write_csv(wide_table_relabs, "Figures/Inc45d_commonname_genus_relative_abundances.csv")
+
+# Print previews
+print(wide_table)
+print(wide_table_relabs)
+
+```
+
+
+
+
+#control
+
+#genus
+
+
+```{r}
+Control_metadata <- metadata %>%
+  subset(groups == "control") %>%
+  subset(common_name =="Uproject_Strain_Mix_DNA_control")
+
+
+Control_ASVS_subset <- ASVs_decontam %>%
+  dplyr::select(c(seqid,
+            #P25307_1013_S13,
+            #P25307_1014_S14,
+            #P25307_1015_S15,
+            P25307_1016_S16,
+            P25307_1017_S17,
+            P25307_1018_S18
+            #P30414_1060_S60,
+            #P30414_1061_S61
+            ))
+
+Control_asvs <-Control_ASVS_subset%>%
+  gather(sample, count, 2:ncol(.)) %>% 
+  #filter(count > 0) %>%
+  group_by(sample) %>% 
+  mutate(relab = count/sum(count)) %>% 
+  filter(n() > 0) %>% 
+  ungroup()
+
+
+
+```
+
+
+
+
+
+
+```{r assign-top10-genus-to-taxonomy}
+# Start by finding the top 11 genus *on average* over the samples
+p <- Control_asvs %>%
+  inner_join(taxonomy, by = 'seqid') %>%
+  group_by(Genus, sample) %>%
+  # Calculate the relative abundance of each genus in each sample
+  summarise(relab = sum(relab)) %>%
+  # Calculate the *mean* relative abundance of each genus over the samples
+  summarise(mean_relab = mean(relab)) %>%
+  ungroup() %>%
+  # Filter out non-assigned genus
+  filter(!is.na(Genus)) %>%
+  # Select the top 11
+  top_n(20, mean_relab)
+# Add this information to the taxonomy table as the column topgenus
+taxonomy <- taxonomy_raw %>%
+  # Join in the top 10 table. *Important* with left join, otherwise you loose rows in the
+  # taxonomy table that do not appear in the top 11 table.
+  left_join(
+    p %>% 
+      # Duplicate the genus column, with the old name and as "topgenus"
+      transmute(Genus, topgenus = Genus),
+    by = 'Genus'
+  ) %>%
+  # Set topgenus to 'Other' for those that were not among the top 11
+  replace_na(list('topgenus' = 'Other'))
+```
+
+```{r}
+Control_asvs %>%
+  left_join(taxonomy, by = 'seqid') %>%
+  group_by(sample, Genus) %>% summarise(relab = sum(relab)) %>% ungroup() %>%
+  spread(sample, relab, fill = 0) %>%
+  write_csv('Figures/Control_asvs_topgenus.csv')
+```
+
+
+```{r plot-top-genus}
+Control_asvs %>%
+  inner_join(taxonomy, by = 'seqid') %>%
+  inner_join(Control_metadata, by = "sample")%>%
+  group_by(topgenus, sample, Your_sample_name, year, experiment,common_name)  %>% 
+  summarise(relab = sum(relab)) %>% 
+  ungroup()%>%
+  group_by(common_name) %>%
+  mutate(relab_adjusted = case_when(
+    #common_name == "Uproject_Mediamix_DNA_control" ~ relab / 3
+    common_name == "Uproject_Strain_Mix_DNA_control" ~ relab / 3,
+    #common_name == "U-proj KFM02A End sampling 24/10-22 Media 641" ~ relab / 1,
+    #common_name == "U-proj KFM02A End sampling 24/10-22 Acetate stock" ~ relab / 1
+    ))%>%
+  
+  ggplot(aes(
+    x = common_name,
+    y = relab_adjusted, 
+    fill = fct_relevel(topgenus, "Other" , after = Inf))) +
+  geom_col() +
+  #facet_grid(. ~ factor(year, levels = c("2021", "2022", "2023")), scales = "free_x", drop = TRUE) + #this line of code splits the figure by the year levels
+  scale_fill_manual(values = myColors) +
+  coord_flip() +
+  labs(title = "Top 20 Genus Control")+
+  ylab("Relative Abundance")+
+  xlab("Your_sample_name")+
+  theme(
+   legend.position = 'bottom', legend.title = element_blank()) +
+  guides(fill = guide_legend(reverse = TRUE))
+    
+```
+
+```{r}
+ggsave("Figures/Uranium_magnus_StackedBar_Top_20_genus_Control_averages_decontam.pdf",scale = 2, width = 18, height = 13, units = "cm")
+```
+
+
+
+```{r}
+# Merge boreZtp_asvs with taxonomy and metadata
+final_table <- Control_asvs %>%
+  inner_join(taxonomy, by = "seqid") %>%
+  inner_join(Control_metadata, by = "sample") %>%
+  group_by(common_name, Genus) %>%
+  summarise(total_count = sum(count), .groups = "drop") %>%
+  ungroup()
+
+# Identify the top 20 genera based on total counts across all common_name
+top_genera <- final_table %>%
+  group_by(Genus) %>%
+  summarise(total_genus_count = sum(total_count), .groups = "drop") %>%
+  arrange(desc(total_genus_count)) %>%
+  slice_head(n = 20) %>%
+  pull(Genus)
+
+# Categorize genera as "Top 20" or "Other"
+final_table <- final_table %>%
+  mutate(Genus = if_else(Genus %in% top_genera, Genus, "Other"),
+         Genus = if_else(is.na(Genus), "Other", Genus)) # Combine NA into "Other"
+
+# Summarize again to combine all "Other" counts
+final_table <- final_table %>%
+  group_by(common_name, Genus) %>%
+  summarise(total_count = sum(total_count), .groups = "drop")
+
+# Calculate relative abundances for each genus within each common_name
+final_table_relabs <- final_table %>%
+  group_by(common_name) %>%
+  mutate(relative_abundance = total_count / sum(total_count)) %>%
+  ungroup()
+
+# Reshape into wide format for absolute counts: row names = common_name, column names = Genus, values = total counts
+wide_table <- final_table %>%
+  pivot_wider(names_from = Genus, values_from = total_count, values_fill = 0)
+
+# Reshape into wide format for relative abundances: row names = common_name, column names = Genus, values = relative abundances
+wide_table_relabs <- final_table_relabs %>%
+  dplyr::select(common_name, Genus, relative_abundance) %>%
+  pivot_wider(names_from = Genus, values_from = relative_abundance, values_fill = 0)
+
+# Save outputs for inspection
+write_csv(wide_table, "Figures/Control_commonname_genus_asv_counts.csv")
+write_csv(wide_table_relabs, "Figures/Control_commonname_genus_relative_abundances.csv")
+
+# Print previews
+print(wide_table)
+print(wide_table_relabs)
+
+```
+
+
+
+
+
+
+#Species
+
+
+
+
+
+
+```{r}
+boreZtp_metadata <- metadata %>%
+  subset(groups == "boreZtp")
+
+
+boreZtp_ASVS_subset <- ASVs_decontam %>%
+  dplyr::select(c(seqid,
+            P25307_1010_S10, 
+            P25307_1021_S21,
+            P25307_1064_S64,
+            P25307_1065_S65,
+            P30414_1076_S76,
+            P30414_1077_S77,
+            P30414_1078_S78,
+            P30414_1079_S79,
+            P30414_1080_S80,
+            P30414_1062_S62,
+            P30414_1063_S63,
+            P30414_1064_S64,
+            P30414_1065_S65))
+
+
+
+boreZtp_asvs <-boreZtp_ASVS_subset%>%
+  gather(sample, count, 2:ncol(.)) %>% 
+  #filter(count > 0) %>%
+  group_by(sample) %>% 
+  mutate(relab = count/sum(count)) %>% 
+  filter(n() > 0) %>% 
+  ungroup()
+
+
+
+```
+
+
+
+
+
+
+```{r assign-top10-species-to-taxonomy}
+# Start by finding the top 11 species *on average* over the samples
+p <- boreZtp_asvs %>%
+  inner_join(taxonomy, by = 'seqid') %>%
+  group_by(Species, sample) %>%
+  # Calculate the relative abundance of each species in each sample
+  summarise(relab = sum(relab)) %>%
+  # Calculate the *mean* relative abundance of each species over the samples
+  summarise(mean_relab = sum(relab)) %>%
+  ungroup() %>%
+  # Filter out non-assigned species
+  filter(!is.na(Species)) %>%
+  # Select the top 11
+  top_n(20, mean_relab)
+# Add this information to the taxonomy table as the column topspecies
+taxonomy <- taxonomy_raw %>%
+  # Join in the top 10 table. *Important* with left join, otherwise you loose rows in the
+  # taxonomy table that do not appear in the top 11 table.
+  left_join(
+    p %>% 
+      # Duplicate the species column, with the old name and as "topspecies"
+      transmute(Species, topspecies = Species),
+    by = 'Species'
+  ) %>%
+  # Set topspecies to 'Other' for those that were not among the top 11
+  replace_na(list('topspecies' = 'Other'))
+```
+
+```{r}
+boreZtp_asvs %>%
+  left_join(taxonomy, by = 'seqid') %>%
+  group_by(sample, Species) %>% summarise(relab = sum(relab)) %>% ungroup() %>%
+  spread(sample, relab, fill = 0) %>%
+  write_csv('Figures/boreZtp_asvs_topspecies.csv')
+```
+   
+
+```{r plot-top-species}
+boreZtp_asvs %>%
+  inner_join(taxonomy, by = 'seqid') %>%
+  inner_join(boreZtp_metadata, by = "sample")%>%
+  group_by(topspecies, sample, Your_sample_name, year, experiment,common_name, fig_name) %>%
+  summarise(relab = sum(relab)) %>% 
+  ungroup() %>%
+  group_by(common_name) %>%
+  mutate(relab_adjusted = case_when(
+    common_name == "Uproject_KFM02A_DNA" ~ relab / 4,
+    common_name == "U-proj KFM02A 6/6/2022 DNA" ~ relab / 5,
+    common_name == "U-proj KFM02A 21/2-2023 DNA" ~ relab / 4
+  )) %>%
+  ggplot(aes(
+    x = fct_relevel(fig_name,rev(c( "ZTP 2021" , "ZTP 2022" , "ZTP 2023"))),
+    y = relab_adjusted, 
+    fill = fct_relevel(topspecies, "Other" , after = Inf))) +
+  geom_col() +
+  #facet_grid(. ~ factor(year, levels = c("2021", "2022", "2023")), scales = "free_x", drop = TRUE) + #this line of code splits the figure by the year levels
+  scale_fill_manual(values = myColors) +
+  coord_flip() +
+  labs(title = "Top 20 Species BoreZtp")+
+  ylab("Relative Abundance")+
+  xlab("Your_sample_name")+
+  theme(
+   legend.position = 'bottom', legend.title = element_blank()) +
+  guides(fill = guide_legend(reverse = TRUE))
+    
+```
+
+```{r}
+ggsave("Figures/Uranium_magnus_StackedBar_Top_20_species_boreZtp_averages_decontam.pdf",scale = 2, width = 18, height = 13, units = "cm")
+```
+
+
+```{r}
+# Merge boreZtp_asvs with taxonomy and metadata
+final_table <- boreZtp_asvs %>%
+  inner_join(taxonomy, by = "seqid") %>%
+  inner_join(boreZtp_metadata, by = "sample") %>%
+  group_by(common_name, Species) %>%
+  summarise(total_count = sum(count), .groups = "drop") %>%
+  ungroup()
+
+# Identify the top 20 Species based on total counts across all common_name
+top_Species <- final_table %>%
+  group_by(Species) %>%
+  summarise(total_species_count = sum(total_count), .groups = "drop") %>%
+  arrange(desc(total_species_count)) %>%
+  slice_head(n = 20) %>%
+  pull(Species)
+
+# Categorize Species as "Top 20" or "Other"
+final_table <- final_table %>%
+  mutate(Species = if_else(Species %in% top_Species, Species, "Other"),
+         Species = if_else(is.na(Species), "Other", Species)) # Combine NA into "Other"
+
+# Summarize again to combine all "Other" counts
+final_table <- final_table %>%
+  group_by(common_name, Species) %>%
+  summarise(total_count = sum(total_count), .groups = "drop")
+
+# Calculate relative abundances for each species within each common_name
+final_table_relabs <- final_table %>%
+  group_by(common_name) %>%
+  mutate(relative_abundance = total_count / sum(total_count)) %>%
+  ungroup()
+
+# Reshape into wide format for absolute counts: row names = common_name, column names = Species, values = total counts
+wide_table <- final_table %>%
+  pivot_wider(names_from = Species, values_from = total_count, values_fill = 0)
+
+# Reshape into wide format for relative abundances: row names = common_name, column names = Species, values = relative abundances
+wide_table_relabs <- final_table_relabs %>%
+  dplyr::select(common_name, Species, relative_abundance) %>%
+  pivot_wider(names_from = Species, values_from = relative_abundance, values_fill = 0)
+
+# Save outputs for inspection
+write_csv(wide_table, "Figures/boreZtp_commonname_species_asv_counts.csv")
+write_csv(wide_table_relabs, "Figures/boreZtp_commonname_species_relative_abundances.csv")
+
+# Print previews
+print(wide_table)
+print(wide_table_relabs)
+
+```
+
+#incubation 45 days  time point
+#Species
+ 
+
+
+
+
+```{r}
+Inc45d_metadata <- metadata %>%
+  subset(groups == "Inc45d")
+
+
+Inc45d_ASVS_subset <- ASVs_decontam %>%
+  dplyr::select(c(seqid,
+            P30414_1068_S68,
+            P30414_1069_S69,
+            P30414_1070_S70,
+            P30414_1071_S71,
+            P30414_1072_S72,
+            P30414_1073_S73,
+            P30414_1074_S74,
+            P30414_1075_S75,
+            P30414_1055_S55,
+            P30414_1056_S56,
+            P30414_1057_S57,
+            P30414_1058_S58,
+            P30414_1066_S66,
+            P30414_1067_S67,
+            P25307_1002_S2,
+            P25307_1005_S5,
+            P25307_1008_S8,
+            P25307_1001_S1,
+            P25307_1004_S4,
+            P25307_1007_S7,
+            P25307_1003_S3,
+            P25307_1006_S6,
+            P25307_1009_S9,
+            P30414_1059_S59))
+
+Inc45d_asvs <-Inc45d_ASVS_subset%>%
+  gather(sample, count, 2:ncol(.)) %>% 
+  #filter(count > 0) %>%
+  group_by(sample) %>%
+  mutate(total_count = sum(count)) %>%
+  mutate(relab = count / total_count) %>%
+  filter(n() > 0) %>% 
+  ungroup()
+
+
+
+```
+
+
+
+```{r assign-top10-species-to-taxonomy}
+# Start by finding the top 11 species *on average* over the samples
+p <- Inc45d_asvs %>%
+  inner_join(taxonomy, by = 'seqid') %>%
+  group_by(Species, sample) %>%
+  # Calculate the relative abundance of each species in each sample
+  summarise(relab = sum(relab)) %>%
+  # Calculate the *mean* relative abundance of each species over the samples
+  summarise(mean_relab = mean(relab)) %>%
+  ungroup() %>%
+  # Filter out non-assigned species
+  filter(!is.na(Species)) %>%
+  # Select the top 11
+  top_n(20, mean_relab)
+# Add this information to the taxonomy table as the column topspecies
+taxonomy <- taxonomy_raw %>%
+  # Join in the top 10 table. *Important* with left join, otherwise you loose rows in the
+  # taxonomy table that do not appear in the top 11 table.
+  left_join(
+    p %>% 
+      # Duplicate the species column, with the old name and as "topspecies"
+      transmute(Species, topspecies = Species),
+    by = 'Species'
+  ) %>%
+  # Set topspecies to 'Other' for those that were not among the top 11
+  replace_na(list('topspecies' = 'Other'))
+```
+
+```{r}
+Inc45d_asvs %>%
+  left_join(taxonomy, by = 'seqid') %>%
+  group_by(sample, Species) %>% summarise(relab = sum(relab)) %>% ungroup() %>%
+  spread(sample, relab, fill = 0) %>%
+  write_csv('Figures/Inc45d_asvs_topspecies.csv')
+```
+
+
+```{r plot-top-species}
+Inc45d_asvs %>%
+  inner_join(taxonomy, by = 'seqid') %>%
+  inner_join(Inc45d_metadata, by = "sample")%>%
+  group_by(topspecies, sample, common_name, Your_sample_name, year, experiment, fig_name) %>% 
+  summarise(total_relab = sum(relab)) %>% 
+  ungroup() %>%
+  group_by(common_name) %>%
+  mutate(relab_adjusted = case_when(
+    common_name == "U-proj end sampling Blank 1 filtered" ~ total_relab / 2,
+    common_name == "U-proj end sampling filtered + Acetate" ~ total_relab / 2,
+    common_name == "U-proj end sampling Blank 1 unfiltered" ~ total_relab / 2,
+    common_name == "U-proj end sampling unfiltered + Acetate" ~ total_relab / 2,
+    common_name == "U-proj KFM02A End sampling 24/10-22 Control water" ~ total_relab / 2, 
+    common_name == "U-proj KFM02A End sampling 24/10-22 Unfilter + Acetat" ~ total_relab / 1,
+    common_name == "U-proj KFM02A End sampling 24/10-22 Unfilter + Acetat + media" ~ total_relab,
+    common_name == "Forsmark unfiltered end sampling DNA 13/12-22" ~ total_relab / 1,
+    common_name == "Forsmark filtered+Acetate end sampling DNA 13/12-22" ~ total_relab / 1, 
+    common_name == "Uproject_DNA_filter + acetate" ~ total_relab / 3,
+    common_name == "Uproject_DNA_filter + acetate + SRB" ~ total_relab / 3,
+    common_name == "Uproject_DNA_filter_water" ~ total_relab / 3,
+    common_name == "U-proj KFM02A End sampling 24/10-22 Filter + Acetat + media" ~ total_relab / 1)) %>% 
+
+  ggplot(aes(
+    x = fct_relevel(fig_name,rev(c( 
+      "FW 2021",
+      "FW 2022",
+      "FW 2023",
+      "FW/Ace 2021",
+      "FW/Ace 2022",
+      "FW/Ace 2023",
+      "FW/Ace/Med641 2022",
+      "FW/Ace/Med/SRB 2021",
+      "UW 2022",
+      "UW 2023",
+      "UW/Ace 2022",
+      "UW/Ace 2023",
+      "UW/Ace/Med641 2022"))), 
+    y = relab_adjusted, 
+    fill = fct_relevel(topspecies, "Other" , after = Inf))) +
+  geom_col() +
+  #facet_grid(. ~ factor(year, levels = c("2021", "2022", "2023")), scales = "free_x", drop = TRUE) + #this line of code splits the figure by the year levels
+  scale_fill_manual(values = myColors) +
+  coord_flip() +
+  labs(title = "Top 20 Species Inc45d")+
+  ylab("Relative Abundance")+
+  xlab("Your_sample_name")+
+  theme(
+   legend.position = 'bottom', legend.title = element_blank()) +
+  guides(fill = guide_legend(reverse = TRUE))
+    
+```
+
+```{r}
+ggsave("Figures/Uranium_magnus_StackedBar_Top_20_species_Inc45d_averages_decontam.pdf",scale = 2, width = 18, height = 13, units = "cm")
+```
+
+
+
+```{r}
+# Merge boreZtp_asvs with taxonomy and metadata
+final_table <- Inc45d_asvs %>%
+  inner_join(taxonomy, by = "seqid") %>%
+  inner_join(Inc45d_metadata, by = "sample") %>%
+  group_by(common_name, Species) %>%
+  summarise(total_count = sum(count), .groups = "drop") %>%
+  ungroup()
+
+# Identify the top 20 Species based on total counts across all common_name
+top_Species <- final_table %>%
+  group_by(Species) %>%
+  summarise(total_species_count = sum(total_count), .groups = "drop") %>%
+  arrange(desc(total_species_count)) %>%
+  slice_head(n = 20) %>%
+  pull(Species)
+
+# Categorize Species as "Top 20" or "Other"
+final_table <- final_table %>%
+  mutate(Species = if_else(Species %in% top_Species, Species, "Other"),
+         Species = if_else(is.na(Species), "Other", Species)) # Combine NA into "Other"
+
+# Summarize again to combine all "Other" counts
+final_table <- final_table %>%
+  group_by(common_name, Species) %>%
+  summarise(total_count = sum(total_count), .groups = "drop")
+
+# Calculate relative abundances for each species within each common_name
+final_table_relabs <- final_table %>%
+  group_by(common_name) %>%
+  mutate(relative_abundance = total_count / sum(total_count)) %>%
+  ungroup()
+
+# Reshape into wide format for absolute counts: row names = common_name, column names = Species, values = total counts
+wide_table <- final_table %>%
+  pivot_wider(names_from = Species, values_from = total_count, values_fill = 0)
+
+# Reshape into wide format for relative abundances: row names = common_name, column names = Species, values = relative abundances
+wide_table_relabs <- final_table_relabs %>%
+  dplyr::select(common_name, Species, relative_abundance) %>%
+  pivot_wider(names_from = Species, values_from = relative_abundance, values_fill = 0)
+
+# Save outputs for inspection
+write_csv(wide_table, "Figures/Inc45d_commonname_species_asv_counts.csv")
+write_csv(wide_table_relabs, "Figures/Inc45d_commonname_species_relative_abundances.csv")
+
+# Print previews
+print(wide_table)
+print(wide_table_relabs)
+
+```
+
+
+
+
+#control
+
+#species
+
+
+```{r}
+Control_metadata <- metadata %>%
+  subset(groups == "control") %>%
+  subset(common_name =="Uproject_Strain_Mix_DNA_control")
+
+
+Control_ASVS_subset <- ASVs_decontam %>%
+  dplyr::select(c(seqid,
+            #P25307_1013_S13,
+            #P25307_1014_S14,
+            #P25307_1015_S15,
+            P25307_1016_S16,
+            P25307_1017_S17,
+            P25307_1018_S18
+            #P30414_1060_S60,
+            #P30414_1061_S61
+            ))
+
+Control_asvs <-Control_ASVS_subset%>%
+  gather(sample, count, 2:ncol(.)) %>% 
+  #filter(count > 0) %>%
+  group_by(sample) %>% 
+  mutate(relab = count/sum(count)) %>% 
+  filter(n() > 0) %>% 
+  ungroup()
+
+
+
+```
+
+
+
+
+
+
+```{r assign-top10-species-to-taxonomy}
+# Start by finding the top 11 species *on average* over the samples
+p <- Control_asvs %>%
+  inner_join(taxonomy, by = 'seqid') %>%
+  group_by(Species, sample) %>%
+  # Calculate the relative abundance of each species in each sample
+  summarise(relab = sum(relab)) %>%
+  # Calculate the *mean* relative abundance of each species over the samples
+  summarise(mean_relab = mean(relab)) %>%
+  ungroup() %>%
+  # Filter out non-assigned species
+  filter(!is.na(Species)) %>%
+  # Select the top 11
+  top_n(20, mean_relab)
+# Add this information to the taxonomy table as the column topspecies
+taxonomy <- taxonomy_raw %>%
+  # Join in the top 10 table. *Important* with left join, otherwise you loose rows in the
+  # taxonomy table that do not appear in the top 11 table.
+  left_join(
+    p %>% 
+      # Duplicate the species column, with the old name and as "topspecies"
+      transmute(Species, topspecies = Species),
+    by = 'Species'
+  ) %>%
+  # Set topspecies to 'Other' for those that were not among the top 11
+  replace_na(list('topspecies' = 'Other'))
+```
+
+```{r}
+Control_asvs %>%
+  left_join(taxonomy, by = 'seqid') %>%
+  group_by(sample, Species) %>% summarise(relab = sum(relab)) %>% ungroup() %>%
+  spread(sample, relab, fill = 0) %>%
+  write_csv('Figures/Control_asvs_topspecies.csv')
+```
+
+
+```{r plot-top-species}
+Control_asvs %>%
+  inner_join(taxonomy, by = 'seqid') %>%
+  inner_join(Control_metadata, by = "sample")%>%
+  group_by(topspecies, sample, Your_sample_name, year, experiment,common_name)  %>% 
+  summarise(relab = sum(relab)) %>% 
+  ungroup()%>%
+  group_by(common_name) %>%
+  mutate(relab_adjusted = case_when(
+    #common_name == "Uproject_Mediamix_DNA_control" ~ relab / 3,
+    common_name == "Uproject_Strain_Mix_DNA_control" ~ relab / 3
+    #common_name == "U-proj KFM02A End sampling 24/10-22 Media 641" ~ relab / 1,
+    #common_name == "U-proj KFM02A End sampling 24/10-22 Acetate stock" ~ relab / 1
+    ))%>%
+  
+  ggplot(aes(
+    x = common_name,
+    y = relab_adjusted, 
+    fill = fct_relevel(topspecies, "Other" , after = Inf))) +
+  geom_col() +
+  #facet_grid(. ~ factor(year, levels = c("2021", "2022", "2023")), scales = "free_x", drop = TRUE) + #this line of code splits the figure by the year levels
+  scale_fill_manual(values = myColors) +
+  coord_flip() +
+  labs(title = "Top 20 Species Control")+
+  ylab("Relative Abundance")+
+  xlab("Your_sample_name")+
+  theme(
+   legend.position = 'bottom', legend.title = element_blank()) +
+  guides(fill = guide_legend(reverse = TRUE))
+    
+```
+
+```{r}
+ggsave("Figures/Uranium_magnus_StackedBar_Top_20_species_Control_averages_decontam.pdf",scale = 2, width = 18, height = 13, units = "cm")
+```
+
+
+
+```{r}
+# Merge boreZtp_asvs with taxonomy and metadata
+final_table <- Control_asvs %>%
+  inner_join(taxonomy, by = "seqid") %>%
+  inner_join(Control_metadata, by = "sample") %>%
+  group_by(common_name, Species) %>%
+  summarise(total_count = sum(count), .groups = "drop") %>%
+  ungroup()
+
+# Identify the top 20 Species based on total counts across all common_name
+top_Species <- final_table %>%
+  group_by(Species) %>%
+  summarise(total_species_count = sum(total_count), .groups = "drop") %>%
+  arrange(desc(total_species_count)) %>%
+  slice_head(n = 20) %>%
+  pull(Species)
+
+# Categorize Species as "Top 20" or "Other"
+final_table <- final_table %>%
+  mutate(Species = if_else(Species %in% top_Species, Species, "Other"),
+         Species = if_else(is.na(Species), "Other", Species)) # Combine NA into "Other"
+
+# Summarize again to combine all "Other" counts
+final_table <- final_table %>%
+  group_by(common_name, Species) %>%
+  summarise(total_count = sum(total_count), .groups = "drop")
+
+# Calculate relative abundances for each species within each common_name
+final_table_relabs <- final_table %>%
+  group_by(common_name) %>%
+  mutate(relative_abundance = total_count / sum(total_count)) %>%
+  ungroup()
+
+# Reshape into wide format for absolute counts: row names = common_name, column names = Species, values = total counts
+wide_table <- final_table %>%
+  pivot_wider(names_from = Species, values_from = total_count, values_fill = 0)
+
+# Reshape into wide format for relative abundances: row names = common_name, column names = Species, values = relative abundances
+wide_table_relabs <- final_table_relabs %>%
+  dplyr::select(common_name, Species, relative_abundance) %>%
+  pivot_wider(names_from = Species, values_from = relative_abundance, values_fill = 0)
+
+# Save outputs for inspection
+write_csv(wide_table, "Figures/Control_commonname_species_asv_counts.csv")
+write_csv(wide_table_relabs, "Figures/Control_commonname_species_relative_abundances.csv")
+
+# Print previews
+print(wide_table)
+print(wide_table_relabs)
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+#Diversity analyses, Alpha, Beta PCA, RDA
+
+
+
+
+
+
+
+
+#DIversity indicies and PCA
+
+
+```{r simple NMDS, }
+
+
+feature_table_bacteria <- ASVs_decontam
+feature_table_bacteria <- feature_table_bacteria[ , -c(12,13,14,15,16,17,26,27)] # remove neg control samples
+
+T_otu_mat <- feature_table_bacteria %>% tibble::column_to_rownames("seqid") %>% as.matrix() %>% t()
+
+
+tax_mat <- taxonomy_raw %>% tibble::column_to_rownames("seqid") %>% as.matrix()
+
+samples_nmds <- metadata %>% subset(groups != "control")  %>% tibble::column_to_rownames("sample") %>% as.matrix()
+  
+
+# Shannon's H' library(vegan)
+H<-diversity(T_otu_mat)
+
+# Observed Richness
+richness<-specnumber(T_otu_mat)
+
+# Pielou's Evenness
+evenness<- H/log(richness)
+
+# Create alpha diversity dataframe including environmental data pH + iron_total + Fe_HCL_soluble + Sulfur_total + S_HCL_Soluble
+alpha <- cbind(shannon = H, richness = richness, pielou = evenness, samples_nmds) 
+
+alpha<-data.frame(sample= row.names(alpha), alpha)
+
+head(alpha)
+
+repl_AMD_Prevent_bacteria.mdf<- T_otu_mat
+
+AMD_Prevent_bacteria.bray<- vegdist(repl_AMD_Prevent_bacteria.mdf, method = "bray")
+
+AMD_Prevent_bacteria.bray
+
+AMD_Prevent_bacteria.jac <- vegdist(repl_AMD_Prevent_bacteria.mdf, method = "jaccard" , binary = T)
+
+AMD_Prevent_bacteria.jac
+
+###PCOA
+
+# calculate principal coordinates analysis (Bray-Curtis)
+pcoa.AMD_Prevent_bacteria.bray <- cmdscale(AMD_Prevent_bacteria.bray, k = 2, eig = T)
+
+# extract axis positions for each site from cmdscale object and create a dataframe for plotting
+pcoa.AMD_Prevent_bacteria.bray.plotting <- as.data.frame(pcoa.AMD_Prevent_bacteria.bray$points)
+colnames(pcoa.AMD_Prevent_bacteria.bray.plotting) <- c("axis_1", "axis_2")
+pcoa.AMD_Prevent_bacteria.bray.plotting$site <- rownames(pcoa.AMD_Prevent_bacteria.bray.plotting)
+
+pcoa.AMD_Prevent_bacteria.bray.plotting <- cbind(pcoa.AMD_Prevent_bacteria.bray.plotting, samples_nmds)
+#%>%select (...)
+
+# calculate the proportion of variance in the data which is explained by the first two PCoA axes
+pcoa.AMD_Prevent_bacteria.bray$eig[1]/(sum(pcoa.AMD_Prevent_bacteria.bray$eig))
+# resulting value is the Xlab 
+```
+```{r}
+pcoa.AMD_Prevent_bacteria.bray$eig[2]/(sum(pcoa.AMD_Prevent_bacteria.bray$eig))
+#resulting value is the ylab 
+```
+
+#legend order  
+#boreZtp
+#       "Uproject_KFM02A_DNA",
+#       "U-proj KFM02A 6/6/2022 DNA",
+#       "U-proj KFM02A 21/2-2023 DNA"
+
+#inc45: "Uproject_DNA_filter_water",
+#      "U-proj KFM02A End sampling 24/10-22 Control water",
+#      "U-proj end sampling Blank 1 filtered",
+#      "Uproject_DNA_filter + acetate",
+#      "Forsmark filtered+Acetate end sampling DNA 13/12-22",
+#      "U-proj end sampling filtered + Acetate",
+#      "U-proj KFM02A End sampling 24/10-22 Filter + Acetat + media",
+#      "Uproject_DNA_filter + acetate + SRB",
+#      "Forsmark unfiltered end sampling DNA 13/12-22",
+#      "U-proj end sampling Blank 1 unfiltered",
+#      "U-proj KFM02A End sampling 24/10-22 Unfilter + Acetat",
+#      "U-proj end sampling unfiltered + Acetate",
+#      "U-proj KFM02A End sampling 24/10-22 Unfilter + Acetat + media"
+
+
+#"Uproject_KFM02A_DNA","U-proj KFM02A 6/6/2022 DNA", "U-proj KFM02A 21/2-2023 DNA" , "Uproject_DNA_filter_water", "U-proj KFM02A End sampling 24/10-22 Control water", "U-proj end sampling Blank 1 filtered", "Uproject_DNA_filter + acetate", "Forsmark filtered+Acetate end sampling DNA 13/12-22", "U-proj end sampling filtered + Acetate", "U-proj KFM02A End sampling 24/10-22 Filter + Acetat + media", "Uproject_DNA_filter + acetate + SRB", "Forsmark unfiltered end sampling DNA 13/12-22", "U-proj end sampling Blank 1 unfiltered", "U-proj KFM02A End sampling 24/10-22 Unfilter + Acetat", "U-proj end sampling unfiltered + Acetate", "U-proj KFM02A End sampling 24/10-22 Unfilter + Acetat + media"
+
+```{r}
+Pca_legend_order <- c("ZTP 2021", 
+      "ZTP 2022", 
+      "ZTP 2023",
+      "FW 2021",
+      "FW 2022",
+      "FW 2023",
+      "FW/Ace 2021",
+      "FW/Ace 2022",
+      "FW/Ace 2023",
+      "FW/Ace/Med641 2022",
+      "FW/Ace/Med/SRB 2021",
+      "UW 2022",
+      "UW 2023",
+      "UW/Ace 2022",
+      "UW/Ace 2023",
+      "UW/Ace/Med641 2022")
+```
+
+
+```{r}
+# Reorder the common_name factor based on the desired order
+#pcoa.AMD_Prevent_bacteria.bray.plotting <- pcoa.AMD_Prevent_bacteria.bray.plotting %>%
+ # mutate(common_name = fct_relevel(fig_name, Pca_legend_order))
+
+# create a PCoA plot
+pcoa.AMD_Prevent_bacteria.bray.plot <- ggplot(pcoa.AMD_Prevent_bacteria.bray.plotting, aes(x = axis_1, y = axis_2)) +
+  geom_point(aes(color = fct_relevel(fig_name, Pca_legend_order), 
+                                       shape = year), size= 3) +
+  #geom_text_repel(aes(label = N_to_S_Site_names, element_text = 5),
+   #               max.overlaps = Inf,
+    #              min.segment.length = 0,
+     #             box.padding   = 0.35,
+      #            point.padding = 0.5,
+       #           segment.color = 'grey50') +
+   scale_color_manual(values = myColors) +
+  theme_bw() + 
+  theme(plot.title =element_text(size= 5),
+        axis.text = element_text(size= 5),)+
+    labs(title = "Beta Diversity")+
+    xlab("PCA 1 (23.8%)") +
+    ylab("PCA 2 (12.7%)") +
+    annotate(geom = 'text', label = 'Bray-Curtis', x = -.35, y = .45, hjust = .8, vjust = -1)
+
+plot(pcoa.AMD_Prevent_bacteria.bray.plot)
+
+
+
+ 
+```
+
+```{r}
+ggsave("figures/BetaDiversity_nmds_no_normalization.pdf" , width = 28 , height = 15, units = "cm")
+```
+
+
+
+```{r}
+# Reorder `common_name` in the `alpha` dataset
+alpha <- alpha %>%
+  mutate(common_name = fct_relevel(fig_name, Pca_legend_order))
+
+plot.shan <- ggplot(alpha, aes(
+  x = fct_relevel(fig_name, Pca_legend_order), 
+  y = as.numeric(shannon), 
+  color = fig_name)) +
+  geom_boxplot() +
+  #geom_point(size = 1.5) +
+  scale_color_manual(values = myColors) +
+  labs(title = "Shannon's H'")+
+  ylab("") + 
+  xlab("") +
+  theme_bw() +
+  theme(plot.title =element_text(size= 5),
+        axis.text = element_text(size= 5),
+        axis.text.x = element_text(angle = 90, hjust = .5, vjust = 1))
+
+plot.rich <-ggplot(alpha, aes(
+  x = fct_relevel(fig_name, Pca_legend_order), 
+  y = as.numeric(richness), 
+  color = fig_name)) +
+  geom_boxplot() +
+  #geom_point(size = 1.5) +
+  scale_color_manual(values = myColors) +
+  labs( title = "Species Richness")+
+  ylab("") +
+  xlab("") +
+  theme_bw() +
+  theme(plot.title =element_text(size= 5),
+        axis.text = element_text(size= 5),
+        axis.text.x = element_text(angle = 90, hjust = .5, vjust = 1))
+
+plot.even <- ggplot(alpha, aes(
+  x = fct_relevel(fig_name, Pca_legend_order), 
+  y = as.numeric(pielou), 
+  color = fig_name)) +
+  geom_boxplot() +
+  #geom_point(size = 1.5) +
+  scale_color_manual(values = myColors) +
+  labs(title = "Pielou's Evenness")+
+  ylab("") +
+  xlab("") +
+  theme_bw() +
+  theme(plot.title =element_text(size= 5),
+        axis.text = element_text(size= 5),
+        axis.text.x = element_text(angle = 90, hjust = .5, vjust = 1))
+
+
+ggarrange (plot.shan ,
+             plot.rich , 
+             plot.even , 
+           common.legend = TRUE,
+           legend = FALSE,
+           nrow= 1)
+
+
+
+```
+
+```{r}
+ggsave("Figures/Figure_1_AMD_Prevent_diversity_plots_bacteria.pdf" , width = 18 , height = 13, units = "cm")
+```
+
+
+
+
+
+```{r diversity statistics, all sampling and treatment}
+
+shannon_anova <- aov(shannon ~ fig_name , data = alpha)
+richness_anova <- aov( richness ~  fig_name , data = alpha)
+pielou_anova <- aov(pielou ~ fig_name , data = alpha)
+
+shannon_tukey <- shannon_anova %>% TukeyHSD()
+richness_tukey <- richness_anova %>% TukeyHSD()
+pielou_tukey <- pielou_anova %>% TukeyHSD()
+
+
+summary(shannon_anova)
+print(shannon_tukey)
+summary(richness_anova)
+print(richness_tukey)
+summary(pielou_anova)
+print(pielou_tukey)
+
+# Save the summaries of ANOVA and Tukey HSD results
+capture.output({
+  cat("Shannon ANOVA Summary\n")
+  print(summary(shannon_anova))
+  cat("\nShannon Tukey HSD Results\n")
+  print(shannon_tukey)
+}, file = "Figures/shannon_anova_tukey_summary.txt")
+
+capture.output({
+  cat("Richness ANOVA Summary\n")
+  print(summary(richness_anova))
+  cat("\nRichness Tukey HSD Results\n")
+  print(richness_tukey)
+}, file = "Figures/richness_anova_tukey_summary.txt")
+
+capture.output({
+  cat("Pielou ANOVA Summary\n")
+  print(summary(pielou_anova))
+  cat("\nPielou Tukey HSD Results\n")
+  print(pielou_tukey)
+}, file = "Figures/pielou_anova_tukey_summary.txt")
+```
+
