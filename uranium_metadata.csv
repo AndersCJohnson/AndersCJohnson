@@ -1,0 +1,46 @@
+sample,Your_sample_name,year,experiment,replicates,DNA_concentration,sample_type,incubation,groups,common_name,fig_name
+P25307_1001_S1,Uproject_DNA_1_filter + acetate + SRB,2021,7,R,51,sampl,y,Inc45d,Uproject_DNA_filter + acetate + SRB,FW/Ace/Med/SRB 2021
+P25307_1002_S2,Uproject_DNA_2_filter + acetate,2021,5,Q,49.8,sampl,y,Inc45d,Uproject_DNA_filter + acetate,FW/Ace 2021
+P25307_1003_S3,Uproject_DNA_3_filter_water,2021,4,S,5.8,sampl,y,Inc45d,Uproject_DNA_filter_water,FW 2021
+P25307_1004_S4,Uproject_DNA_4_filter + acetate + SRB,2021,7,R,58,sampl,y,Inc45d,Uproject_DNA_filter + acetate + SRB,FW/Ace/Med/SRB 2021
+P25307_1005_S5,Uproject_DNA_5_filter + acetate,2021,5,Q,52,sampl,y,Inc45d,Uproject_DNA_filter + acetate,FW/Ace 2021
+P25307_1006_S6,Uproject_DNA_6_filter_water,2021,4,S,1.06,sampl,y,Inc45d,Uproject_DNA_filter_water,FW 2021
+P25307_1007_S7,Uproject_DNA_7_filter + acetate + SRB,2021,7,R,56,sampl,y,Inc45d,Uproject_DNA_filter + acetate + SRB,FW/Ace/Med/SRB 2021
+P25307_1008_S8,Uproject_DNA_8_filter + acetate,2021,5,Q,48.4,sampl,y,Inc45d,Uproject_DNA_filter + acetate,FW/Ace 2021
+P25307_1009_S9,Uproject_DNA_9_filter_water,2021,4,S,0.702,sampl,y,Inc45d,Uproject_DNA_filter_water,FW 2021
+P25307_1010_S10,Uproject_KFM02A_DNA_11,2021,12,C,4.53,sampl,n,boreZtp,Uproject_KFM02A_DNA,ZTP 2021
+P25307_1013_S13,Uproject_Mediamix_DNA_1_control,2021,9,A,0.001,neg,n,control,Uproject_Mediamix_DNA_control,control
+P25307_1014_S14,Uproject_Mediamix_DNA_2_control,2021,9,A,0.001,neg,n,control,Uproject_Mediamix_DNA_control,control
+P25307_1015_S15,Uproject_Mediamix_DNA_3_control,2021,9,A,0.001,neg,n,control,Uproject_Mediamix_DNA_control,control
+P25307_1016_S16,Uproject_Strain_Mix_DNA_1_control,2021,10,B,2.33,sampl,n,control,Uproject_Strain_Mix_DNA_control,control
+P25307_1017_S17,Uproject_Strain_Mix_DNA_2_control,2021,10,B,2.4,sampl,n,control,Uproject_Strain_Mix_DNA_control,control
+P25307_1018_S18,Uproject_Strain_Mix_DNA_3_control,2021,10,B,0.001,sampl,n,control,Uproject_Strain_Mix_DNA_control,control
+P25307_1021_S21,Uproject_KFM02A_DNA_1,2021,12,C,51,sampl,n,boreZtp,Uproject_KFM02A_DNA,ZTP 2021
+P25307_1064_S64,Uranium_KFM02A_DNA_2,2021,12,C,49.8,sampl,n,boreZtp,Uproject_KFM02A_DNA,ZTP 2021
+P25307_1065_S65,Uranium_KFM02A_DNA_3,2021,12,C,5.8,sampl,n,boreZtp,Uproject_KFM02A_DNA,ZTP 2021
+P30414_1055_S55,U-proj KFM02A End sampling 24/10-22 Control water 1,2022,4,J,2.96,sampl,y,Inc45d,U-proj KFM02A End sampling 24/10-22 Control water,FW 2022
+P30414_1056_S56,U-proj KFM02A End sampling 24/10-22 Control water 2,2022,4,J,2.61,sampl,y,Inc45d,U-proj KFM02A End sampling 24/10-22 Control water,FW 2022
+P30414_1057_S57,U-proj KFM02A End sampling 24/10-22 Unfilter + Acetat 1,2022,2,K,60,sampl,y,Inc45d,U-proj KFM02A End sampling 24/10-22 Unfilter + Acetat,UW/Ace 2022
+P30414_1058_S58,U-proj KFM02A End sampling 24/10-22 Unfilter + Acetat + media 1,2022,3,L,60,sampl,y,Inc45d,U-proj KFM02A End sampling 24/10-22 Unfilter + Acetat + media,UW/Ace/Med641 2022
+P30414_1059_S59,U-proj KFM02A End sampling 24/10-22 Filter + Acetat + media 1,2022,6,T,57,sampl,y,Inc45d,U-proj KFM02A End sampling 24/10-22 Filter + Acetat + media,FW/Ace/Med641 2022
+P30414_1060_S60,U-proj KFM02A End sampling 24/10-22 Media 641,2022,8,M,0.001,neg,n,control,U-proj KFM02A End sampling 24/10-22 Media 641,control
+P30414_1061_S61,U-proj KFM02A End sampling 24/10-22 Acetate stock,2022,11,N,0.001,neg,n,control,U-proj KFM02A End sampling 24/10-22 Acetate stock,control
+P30414_1062_S62,U-proj KFM02A 21/2-2023 DNA-1,2023,14,E,42,sampl,n,boreZtp,U-proj KFM02A 21/2-2023 DNA,ZTP 2023
+P30414_1063_S63,U-proj KFM02A 21/2-2023 DNA-2,2023,14,E,46.8,sampl,n,boreZtp,U-proj KFM02A 21/2-2023 DNA,ZTP 2023
+P30414_1064_S64,U-proj KFM02A 21/2-2023 DNA-3,2023,14,E,38.9,sampl,n,boreZtp,U-proj KFM02A 21/2-2023 DNA,ZTP 2023
+P30414_1065_S65,U-proj KFM02A 21/2-2023 DNA-4,2023,14,E,48.8,sampl,n,boreZtp,U-proj KFM02A 21/2-2023 DNA,ZTP 2023
+P30414_1066_S66,Forsmark unfiltered end sampling DNA 13/12-22,2022,1,O,15.4,sampl,y,Inc45d,Forsmark unfiltered end sampling DNA 13/12-22,UW 2022
+P30414_1067_S67,Forsmark filtered+Acetate end sampling DNA 13/12-22,2022,5,P,11.9,sampl,y,Inc45d,Forsmark filtered+Acetate end sampling DNA 13/12-22,FW/Ace 2022
+P30414_1068_S68,U-proj end sampling Blank 1 filtered - 1,2023,4,F,4.42,sampl,y,Inc45d,U-proj end sampling Blank 1 filtered,FW 2023
+P30414_1069_S69,U-proj end sampling Blank 1 filtered - 2,2023,4,F,1.28,sampl,y,Inc45d,U-proj end sampling Blank 1 filtered,FW 2023
+P30414_1070_S70,U-proj end sampling filtered + Acetate - 1,2023,5,G,7.33,sampl,y,Inc45d,U-proj end sampling filtered + Acetate,FW/Ace 2023
+P30414_1071_S71,U-proj end sampling filtered + Acetate - 2,2023,5,G,8.2,sampl,y,Inc45d,U-proj end sampling filtered + Acetate,FW/Ace 2023
+P30414_1072_S72,U-proj end sampling Blank 1 unfiltered - 1,2023,1,H,8.63,sampl,y,Inc45d,U-proj end sampling Blank 1 unfiltered,UW 2023
+P30414_1073_S73,U-proj end sampling Blank 1 unfiltered - 2,2023,1,H,10.9,sampl,y,Inc45d,U-proj end sampling Blank 1 unfiltered,UW 2023
+P30414_1074_S74,U-proj end sampling unfiltered + Acetate - 1,2023,2,I,18.7,sampl,y,Inc45d,U-proj end sampling unfiltered + Acetate,UW/Ace 2023
+P30414_1075_S75,U-proj end sampling unfiltered + Acetate - 2,2023,2,I,23,sampl,y,Inc45d,U-proj end sampling unfiltered + Acetate,UW/Ace 2023
+P30414_1076_S76,U-proj KFM02A 6/6/2022 DNA-1,2022,13,D,3.19,sampl,n,boreZtp,U-proj KFM02A 6/6/2022 DNA,ZTP 2022
+P30414_1077_S77,U-proj KFM02A 6/6/2022 DNA-2,2022,13,D,3.28,sampl,n,boreZtp,U-proj KFM02A 6/6/2022 DNA,ZTP 2022
+P30414_1078_S78,U-proj KFM02A 6/6/2022 DNA-3,2022,13,D,5.9,sampl,n,boreZtp,U-proj KFM02A 6/6/2022 DNA,ZTP 2022
+P30414_1079_S79,U-proj KFM02A 6/6/2022 DNA-4,2022,13,D,2.48,sampl,n,boreZtp,U-proj KFM02A 6/6/2022 DNA,ZTP 2022
+P30414_1080_S80,U-proj KFM02A 6/9-2022 DNA-5,2022,13,D,6.1,sampl,n,boreZtp,U-proj KFM02A 6/6/2022 DNA,ZTP 2022
