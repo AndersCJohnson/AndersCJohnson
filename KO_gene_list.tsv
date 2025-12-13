@@ -1,0 +1,110 @@
+Pathway catagory	Pathway	KO identifier	Gene ID	Description
+A	Mn oxidation	K06324	cotA	spore coat protein A, manganese oxidase   
+A	Mn oxidation	K22350	mcoA	manganese oxidase
+A	Mn oxidation	K22349	mnxG	manganese oxidase
+A	Mn oxidation	K22348	moxA	manganese oxidase
+A	Mn oxidation	K20205	mpn	manganese peroxidase
+B	Mn oxidation related	K00627	aceA	pyruvate dehydrogenase E2 component (dihydrolipoamide acetyltransferase)
+B	Mn oxidation related	K02193	ccmA	heme exporter protein A 
+B	Mn oxidation related	K02197	ccmE	cytochrome c-type biogenesis protein CcmE
+B	Mn oxidation related	K02198	ccmF	cytochrome c-type biogenesis protein CcmF
+B	Mn oxidation related	K14588	cueO	cuproxidase
+B	Mn oxidation related	K00031	icd	isocitrate dehydrogenase
+B	Mn oxidation related	K00234	sdhA	succinate dehydrogenase (ubiquinone) flavoprotein subunit
+B	Mn oxidation related	K00239	sdhA	succinate dehydrogenase flavoprotein subunit
+B	Mn oxidation related	K00235	sdhB	succinate dehydrogenase (ubiquinone) iron-sulfur subunit
+B	Mn oxidation related	K00240	sdhB	succinate dehydrogenase iron-sulfur subunit
+B	Mn oxidation related	K00236	sdhC	succinate dehydrogenase (ubiquinone) cytochrome b560 subunit
+B	Mn oxidation related	K00241	sdhC	succinate dehydrogenase cytochrome b subunit
+B	Mn oxidation related	K00237	sdhD	succinate dehydrogenase (ubiquinone) membrane anchor subunit
+B	Mn oxidation related	K00242	sdhD	succinate dehydrogenase membrane anchor subunit
+B	Mn oxidation related	K18859	sdhD	succinate dehydrogenase subunit D
+B	Mn oxidation related	K18860	sdhD	succinate dehydrogenase subunit D
+B	Mn oxidation related	K01657	trpE	anthranilate synthase component I
+B	Mn oxidation related	K02654	xcpA	leader peptidase (prepilin peptidase) / Nmethyltransferase
+C	Cytochrome c oxidase, cbb3-type	K00404	ccoN	cytochrome c oxidase cbb3-type subunit I
+C	Cytochrome c oxidase, cbb3-type	K15862	ccoNO	cytochrome c oxidase cbb3-type subunit I/II
+C	Cytochrome c oxidase, cbb3-type	K00405	ccoO	cytochrome c oxidase cbb3-type subunit II
+C	Cytochrome c oxidase, cbb3-type	K00406	ccoP	cytochrome c oxidase cbb3-type subunit III
+C	Cytochrome c oxidase, cbb3-type	K00407	ccoQ	cytochrome c oxidase cbb3-type subunit IV C Cytochrome c oxidase, prokaryotes
+C	Cytochrome c oxidase, cbb3-type	K02274	coxA	cytochrome c oxidase subunit I
+C	Cytochrome c oxidase, cbb3-type	K15408	coxAC	cytochrome c oxidase subunit I
+C	Cytochrome c oxidase, cbb3-type	K02275	coxB	cytochrome c oxidase subunit II
+C	Cytochrome c oxidase, cbb3-type	K02276	coxC	cytochrome c oxidase subunit III
+C	Cytochrome c oxidase, cbb3-type	K02277	coxD, ctaF	cytochrome c oxidase subunit IV  
+D	Dissimilatory nitrate reduction	K02567	napA	periplasmic nitrate reductase NapA
+D	Dissimilatory nitrate reduction	K02568	napB	cytochrome c-type protein NapB
+D	Dissimilatory nitrate reduction	K00370	narG, narZ, nxrA	nitrate reductase / nitrite oxidoreductase, alpha subunit
+D	Dissimilatory nitrate reduction	K00371	narH, narY, nxrB	nitrate reductase / nitrite oxidoreductase, beta subunit
+D	Dissimilatory nitrate reduction	K00374	narI, narV	nitrate reductase gamma subunit
+D	Dissimilatory nitrate reduction	K00373	narJ, narW	nitrate reductase delta subunit
+E	Dissimilatory nitrate reduction, DNRA or ANR	K00362	nirB	nitrite reductase (NADH) large subunit
+E	Dissimilatory nitrate reduction, DNRA or ANR	K00363	nirD	nitrite reductase (NADH) small subunit
+E	Dissimilatory nitrate reduction, DNRA	K03385	nrfA	nitrite reductase (cytochrome c-552)
+E	Dissimilatory nitrate reduction, DNRA	K15876	nrfH	cytochrome c nitrite reductase small subunit
+F	Denitrification	K15877	CYP55	fungal nitric oxide reductase
+F	Denitrification	K00368	nirK	nitrite reductase (NO-forming)
+F	Denitrification	K15864	nirS	nitrite reductase (NO-forming) / hydroxylamine reductase
+F	Denitrification	K04561	norB	nitric oxide reductase subunit B
+F	Denitrification	K02305	norC	nitric oxide reductase subunit C
+F	Denitrification	K00376	nosZ	nitrous-oxide reductase
+G	Dissimilatory sulfate reduction, sulfate => H2S	K00394	aprA	adenylylsulfate reductase, subunit A    
+G	Dissimilatory sulfate reduction, sulfate => H2S	K00395	aprB	adenylylsulfate reductase, subunit B   
+G	Dissimilatory sulfate reduction, sulfate => H2S	K11180	dsrA	sulfite reductase alpha subunit  12 (27)    
+G	Dissimilatory sulfate reduction, sulfate => H2S	K11181	dsrB	sulfite reductase beta subunit    
+G	Dissimilatory sulfate reduction, sulfate => H2S	K00958	sat, met3	sulfate adenylyltransferase  
+H	Sulfite reduction	K16950	asrA	anaerobic sulfite reductase subunit A   
+H	Sulfite reduction	K16951	asrB	anaerobic sulfite reductase subunit B   
+H	Sulfite reduction	K00385	asrC	anaerobic sulfite reductase subunit C 
+I	Methanogenesis, all	K22480	hdrA1	heterodisulfide reductase subunit A1   
+I	Methanogenesis, all	K03388	hdrA2	heterodisulfide reductase subunit A2    
+I	Methanogenesis, all	K22481	hdrB1	heterodisulfide reductase subunit B1   
+I	Methanogenesis, all	K03389	hdrB2	heterodisulfide reductase subunit B2   
+I	Methanogenesis, all	K22482	hdrC1	heterodisulfide reductase subunit C1
+I	Methanogenesis, all	K03390	hdrC2	heterodisulfide reductase subunit C2
+I	Methanogenesis, all	K00399	mcrA	methyl-coenzyme M reductase alpha subunit
+I	Methanogenesis, all	K00401	mcrB	methyl-coenzyme M reductase beta subunit
+I	Methanogenesis, all	K00402	mcrG	methyl-coenzyme M reductase gamma subunit
+J	Methanogenesis, CO2 => methane	K00672	ftr	formylmethanofuran--tetrahydromethanopterin Nformyltransferase
+J	Methanogenesis, CO2 => methane	K00200	fwdA, fmdA	formylmethanofuran dehydrogenase subunit A 
+J	Methanogenesis, CO2 => methane	K00201	fwdB, fmdB	formylmethanofuran dehydrogenase subunit B
+J	Methanogenesis, CO2 => methane	K00202	fwdC, fmdC	formylmethanofuran dehydrogenase subunit C
+J	Methanogenesis, CO2 => methane	K00203	fwdD, fmdD	formylmethanofuran dehydrogenase subunit D
+J	Methanogenesis, CO2 => methane	K11261	fwdE, fmdE	formylmethanofuran dehydrogenase subunit E
+J	Methanogenesis, CO2 => methane	K00205	fwdF, fmdF	4Fe-4S ferredoxin
+J	Methanogenesis, CO2 => methane	K11260	fwdG	4Fe-4S ferredoxin
+J	Methanogenesis, CO2 => methane	K00204	fwdH	4Fe-4S ferredoxin
+J	Methanogenesis, CO2 => methane	K13942	hmd	5,10-methenyltetrahydromethanopterin hydrogenase
+J	Methanogenesis, CO2 => methane	K01499	mch	methenyltetrahydromethanopterin cyclohydrolase
+J	Methanogenesis, CO2 => methane	K00320	mer	5,10-methylenetetrahydromethanopterin reductase
+J	Methanogenesis, CO2 => methane	K00319	mtd	methylenetetrahydromethanopterin dehydrogenase
+K	Methanogenesis, CO2 => methane or acetate => methane	K00577	mtrA	tetrahydromethanopterin S-methyltransferase subunit A
+K	Methanogenesis, CO2 => methane or acetate => methane	K00578	mtrB	tetrahydromethanopterin S-methyltransferase subunit B
+K	Methanogenesis, CO2 => methane or acetate => methane	K00579	mtrC	tetrahydromethanopterin S-methyltransferase subunit C
+K	Methanogenesis, CO2 => methane or acetate => methane	K00580	mtrD	tetrahydromethanopterin S-methyltransferase subunit D 
+K	Methanogenesis, CO2 => methane or acetate => methane	K00581	mtrE	tetrahydromethanopterin S-methyltransferase subunit E
+K	Methanogenesis, CO2 => methane or acetate => methane	K00582	mtrF	tetrahydromethanopterin S-methyltransferase subunit F 
+K	Methanogenesis, CO2 => methane or acetate => methane	K00583	mtrG	tetrahydromethanopterin S-methyltransferase subunit G
+K	Methanogenesis, CO2 => methane or acetate => methane	K00584	mtrH	tetrahydromethanopterin S-methyltransferase subunit H
+L	Methanogenesis, methanol => methane	K14080	mtaA	[methyl-Co(III) methanol/glycine betaine-specific corrinoid protein]:coenzyme M methyltransferase
+L	Methanogenesis, methanol => methane	K04480	mtaB	methanol---5-hydroxybenzimidazolylcobamide Comethyltransferase
+M	Methanogenesis, methylamine/dimeth ylamine/trimethylamine => methane	K14082	mtbA	[methyl-Co(III) methylamine-specific corrinoid protein]:coenzyme M methyltransferase
+M	Methanogenesis, methylamine/dimeth ylamine/trimethylamine => methane	K16178	mtbB	dimethylamine---corrinoid protein Comethyltransferase 
+M	Methanogenesis, methylamine/dimeth ylamine/trimethylamine => methane	K16176	mtmB	methylamine---corrinoid protein Co-methyltransferase
+M	Methanogenesis, methylamine/dimeth ylamine/trimethylamine => methane	K14083	mttB	trimethylamine---corrinoid protein Comethyltransferase
+N	Methanogenesis from glycine betaine	K25220	mtgB	glycine betaine---corrinoid protein Co-methyltransferas 
+N 	Methanogenesis from methoxylated aromatic compounds	K25917	mtoA	[methyl-Co(III) methoxylated-aromatic-compoundspecific corrinoid protein]---tetrahydromethanopterin methyltransferase 
+N 	Methanogenesis from methoxylated aromatic compounds	K25916	mtoB	methoxylated aromatic compound---corrinoid protein Co-methyltransferase 
+N 	Methanogenesis from methanethiol	K16954	mtsA	methylthiol:coenzyme M methyltransferase 
+O 	Methane oxidation, methanotroph, methane => formaldehyde	K14028	mdh1, mxaF	methanol dehydrogenase (cytochrome c) subunit 1
+O 	Methane oxidation, methanotroph, methane => formaldehyde	K14029	mdh2, mxaI	methanol dehydrogenase (cytochrome c) subunit 2
+O 	Methane oxidation, methanotroph, methane => formaldehyde	K16160	mmoB	methane monooxygenase regulatory protein B
+O 	Methane oxidation, methanotroph, methane => formaldehyde	K16161	mmoC	methane monooxygenase component C
+O 	Methane oxidation, methanotroph, methane => formaldehyde	K16162	mmoD	methane monooxygenase component D
+O 	Methane oxidation, methanotroph, methane => formaldehyde	K16157	mmoX	methane monooxygenase component A alpha chain
+O 	Methane oxidation, methanotroph, methane => formaldehyde	K16158	mmoY	methane monooxygenase component A beta chain
+O 	Methane oxidation, methanotroph, methane => formaldehyde	K16159	mmoZ	methane monooxygenase component A gamma chain
+O 	Methane oxidation, methanotroph, methane => formaldehyde	K17066	MOX	alcohol oxidase
+O 	Methane oxidation, methanotroph, methane => formaldehyde	K10944	pmoAamoA	methane/ammonia monooxygenase subunit A
+O 	Methane oxidation, methanotroph, methane => formaldehyde	K10945	pmoBamoB	methane/ammonia monooxygenase subunit B
+O 	Methane oxidation, methanotroph, methane => formaldehyde	K10946	pmoCamoC	methane/ammonia monooxygenase subunit C 
