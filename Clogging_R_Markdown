@@ -6,7 +6,7 @@ output: html_document
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_knit$set(root.dir = "C:/Users/anjoad/Documents/Laboratory Journal/Projects/SKB Clogging and CCC Forsmark/Clogging_R") ##set the working directory
+knitr::opts_knit$set(root.dir = "Path/To/Working/directory/Clogging_R") ##set the working directory
 ```
 
 
