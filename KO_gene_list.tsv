@@ -1,0 +1,127 @@
+Pathway category	Pathway	function	Gene ID	Gene_list_description
+A	"Hydrogen oxidation, anaerobic, NADP"	K05586	hndA	NADH:ubiquinone reductase (H+-translocating)
+A	"Hydrogen oxidation, anaerobic, NADP"	K17992	hndB	NADP-reducing hydrogenase subunit HndB
+A	"Hydrogen oxidation, anaerobic, NADP"	K18331	hndC	NADP-reducing hydrogenase subunit HndC
+A	"Hydrogen oxidation, anaerobic, NADP"	K18332	hndD	NADP-reducing hydrogenase subunit HndD
+B	Sulfide oxidation	K17230	fccA	Cytochrome subunit of sulfide dehydrogenase (FCSD) (FC) (Flavocytochrome c cytochrome subunit)
+B	Sulfide oxidation	K17229	fccB	Sulfide dehydrogenase [flavocytochrome c] flavoprotein chain (EC 1.8.2.3) (FCSD) (Flavocytochrome c flavoprotein subunit) (FC)
+B	S oxidation	K16952	sor	Sulfur oxygenase/reductase (EC 1.13.11.55) (Sulfur oxygenase reductase) (SOR)
+B	S oxidation	K03388	hdrA	"H(2):CoB-CoM heterodisulfide,ferredoxin reductase subunit A (EC 1.8.98.5) (CoB--CoM heterodisulfide reductase iron-sulfur subunit A)"
+B	S oxidation	K03389	hdrB	"H(2):CoB-CoM heterodisulfide,ferredoxin reductase subunit B (EC 1.8.98.5) (CoB--CoM heterodisulfide reductase subunit B)"
+B	Thiosulfate oxidation	K17226	soxY	Sulfur-oxidizing protein SoxY
+B	Thiosulfate oxidation	K17223	soxX	L-cysteine S-thiosulfotransferase
+B	Thiosulfate oxidation	K17227	soxZ	Sulfur-oxidizing protein SoxZ
+B	Thiosulfate oxidation	K17222	soxA	L-cysteine S-thiosulfotransferase
+B	Thiosulfate oxidation	K17224	soxB	S-sulfosulfanyl-L-cysteine sulfohydrolase
+B	Thiosulfate oxidation	K17225	soxC	Sulfane dehydrogenase subunit SoxC
+B	Thiosulfate oxidation	K16936	doxA	Thiosulfate dehydrogenase (quinone) small subunit
+B	Thiosulfate oxidation	K16937	doxD	Thiosulfate dehydrogenase (quinone) large subunit
+B	Thiosulfate oxidation	K05908	doxDA	Thiosulfate dehydrogenase (quinone) [EC:1.8.5.2]
+B	Thiosulfate oxidation	K19713	tsdA	Thiosulfate dehydrogenase
+B	Tetrathionate hydrolase	K27925	tetH	Tetrathionate hydrolase (4THase) (TTH) (EC 3.12.1.-)
+C	"Methane oxidation, methanotroph, methane => formaldehyde"	K14028	"mdh1, mxaF"	Methanol dehydrogenase (cytochrome c) subunit 1
+C	"Methane oxidation, methanotroph, methane => formaldehyde"	K14029	"mdh2, mxaI"	Methanol dehydrogenase (cytochrome c) subunit 2
+C	"Methane oxidation, methanotroph, methane => formaldehyde"	K16160	mmoB	Methane monooxygenase regulatory protein B
+C	"Methane oxidation, methanotroph, methane => formaldehyde"	K16161	mmoC	Methane monooxygenase component C
+C	"Methane oxidation, methanotroph, methane => formaldehyde"	K16162	mmoD	Methane monooxygenase component D
+C	"Methane oxidation, methanotroph, methane => formaldehyde"	K16157	mmoX	Methane monooxygenase component A alpha chain
+C	"Methane oxidation, methanotroph, methane => formaldehyde"	K16158	mmoY	Methane monooxygenase component A beta chain
+C	"Methane oxidation, methanotroph, methane => formaldehyde"	K16159	mmoZ	Methane monooxygenase component A gamma chain
+C	"Methane oxidation, methanotroph, methane => formaldehyde"	K10944	pmoAamoA	methane/ammonia monooxygenase subunit A
+C	"Methane oxidation, methanotroph, methane => formaldehyde"	K10945	pmoBamoB	methane/ammonia monooxygenase subunit B
+C	"Methane oxidation, methanotroph, methane => formaldehyde"	K10946	pmoCamoC	methane/ammonia monooxygenase subunit C 
+D	Dissimilatory nitrate reduction	K02567	napA	Nitrate reductase (cytochrome)
+D	Dissimilatory nitrate reduction	K02568	napB	"Nitrate reductase (cytochrome), electron transfer subunit"
+D	Dissimilatory nitrate reduction	K00370	"narG, narZ, nxrA"	"Nitrate reductase /nitrite oxidoreductase, alpha subunit"
+D	Dissimilatory nitrate reduction	K00371	"narH, narY, nxrB"	"Nitrate reductase / nitrite oxidoreductase, beta subunit"
+D	Dissimilatory nitrate reduction	K00374	"narI, narV"	Nitrate reductase gamma subunit
+D	Dissimilatory nitrate reduction	K00373	"narJ, narW"	Nitrate reductase molybdenum cofactor assembly chaperone
+D	"Dissimilatory nitrate reduction, DNRA or ANR"	K00362	nirB	Nitrite reductase (NADH) large subunit
+D	"Dissimilatory nitrate reduction, DNRA or ANR"	K00363	nirD	nitrite reductase (NADH) small subunit
+D	"Dissimilatory nitrate reduction, DNRA"	K03385	nrfA	Nitrite reductase (cytochrome c-552)
+D	"Dissimilatory nitrate reduction, DNRA"	K15876	nrfH	Cytochrome c nitrite reductase small subunit
+D	Denitrification	K15877	CYP55	Fungal nitric oxide reductase
+D	Denitrification	K00368	nirK	Nitrite reductase (NO-forming)
+D	Denitrification	K15864	nirS	Nitrite reductase (NO-forming) / hydroxylamine reductase
+D	Denitrification	K04561	norB	Nitric oxide reductase subunit B
+D	Denitrification	K02305	norC	Nitric oxide reductase subunit C
+D	Denitrification	K00376	nosZ	Nitrous-oxide reductase
+E	"Dissimilatory sulfate reduction, sulfate => H2S"	K00394	aprA	"Adenylylsulfate reductase, subunit A    "
+E	"Dissimilatory sulfate reduction, sulfate => H2S"	K00395	aprB	"Adenylylsulfate reductase, subunit B   "
+E	"Dissimilatory sulfate reduction, sulfate => H2S"	K11180	dsrA	Dissimilatory sulfite reductase alpha subunit
+E	"Dissimilatory sulfate reduction, sulfate => H2S"	K11181	dsrB	Dissimilatory sulfite reductase beta subunit
+E	"Dissimilatory sulfate reduction, sulfate => H2S"	K27188	dsrK	[DsrC]-trisulfide reductase subunit K
+E	"Dissimilatory sulfate reduction, sulfate => H2S"	K00958	"sat, met3"	Sulfate adenylyltransferase  
+E	Sulfite reduction	K16950	asrA	Anaerobic sulfite reductase subunit A   
+E	Sulfite reduction	K16951	asrB	Anaerobic sulfite reductase subunit B   
+E	Sulfite reduction	K00385	asrC	Anaerobic sulfite reductase subunit C 
+E	Tetrathionate reduction	K08357	ttrA	Tetrathionate reductase subunit A
+E	Tetrathionate reduction	K08358	ttrB	Tetrathionate reductase subunit B
+E	Tetrathionate reduction	K08359	ttrC	Tetrathionate reductase subunit C
+E	Thiosulfate reduction	K08352	"phsA, psrA"	Thiosulfate reductase / polysulfide reductase chain A
+E	Thiosulfate reduction	K08353	phsB	Thiosulfate reductase electron transport protein
+E	Thiosulfate reduction	K08354	phsC	Thiosulfate reductase cytochrome b subunit
+F	Arsenate reduction	EKN56_13105	arrA	Arsenate reductase (donor)
+F	Arsenate reduction	EKN56_13100	arrB	Arsenate reductase (donor) iron-sulfur subunit
+F	Selenate reduction	CAB53372	serA	Selenate/chlorate reductase subunit alpha [EC:1.97.1.9 1.97.1.1]
+F	Selenate reduction	CAB53373	serB	Selenate/chlorate reductase subunit beta [EC:1.97.1.9 1.97.1.1]
+F	Selenate reduction	CAB53375	serC	Selenate/chlorate reductase subunit gamma [EC:1.97.1.9 1.97.1.1]
+G	"Methanogenesis, all"	K22480	hdrA1	Heterodisulfide reductase subunit A1   
+G	"Methanogenesis, all"	K03388	hdrA2	Heterodisulfide reductase subunit A2    
+G	"Methanogenesis, all"	K22481	hdrB1	Heterodisulfide reductase subunit B1   
+G	"Methanogenesis, all"	K03389	hdrB2	Heterodisulfide reductase subunit B2   
+G	"Methanogenesis, all"	K22482	hdrC1	Heterodisulfide reductase subunit C1
+G	"Methanogenesis, all"	K03390	hdrC2	Heterodisulfide reductase subunit C2
+G	"Methanogenesis, all"	K00399	mcrA	Methyl-coenzyme M reductase alpha subunit
+G	"Methanogenesis, all"	K00401	mcrB	Methyl-coenzyme M reductase beta subunit
+G	"Methanogenesis, all"	K00402	mcrG	Methyl-coenzyme M reductase gamma subunit
+G	"Methanogenesis, CO2 => methane"	K00672	ftr	Formylmethanofuran--tetrahydromethanopterin Nformyltransferase
+G	"Methanogenesis, CO2 => methane"	K00200	"fwdA, fmdA"	Formylmethanofuran dehydrogenase subunit A 
+G	"Methanogenesis, CO2 => methane"	K00201	"fwdB, fmdB"	Formylmethanofuran dehydrogenase subunit B
+G	"Methanogenesis, CO2 => methane"	K00202	"fwdC, fmdC"	Formylmethanofuran dehydrogenase subunit C
+G	"Methanogenesis, CO2 => methane"	K00203	"fwdD, fmdD"	Formylmethanofuran dehydrogenase subunit D
+G	"Methanogenesis, CO2 => methane"	K11261	"fwdE, fmdE"	Formylmethanofuran dehydrogenase subunit E
+G	"Methanogenesis, CO2 => methane"	K00205	"fwdF, fmdF"	4Fe-4S ferredoxin
+G	"Methanogenesis, CO2 => methane"	K11260	fwdG	4Fe-4S ferredoxin
+G	"Methanogenesis, CO2 => methane"	K00204	fwdH	4Fe-4S ferredoxin
+G	"Methanogenesis, CO2 => methane"	K13942	hmd	"5,10-methenyltetrahydromethanopterin hydrogenase"
+G	"Methanogenesis, CO2 => methane"	K01499	mch	Methenyltetrahydromethanopterin cyclohydrolase
+G	"Methanogenesis, CO2 => methane"	K00320	mer	"5,10-methylenetetrahydromethanopterin reductase"
+G	"Methanogenesis, CO2 => methane"	K00319	mtd	Methylenetetrahydromethanopterin dehydrogenase
+G	"Methanogenesis, CO2 => methane or acetate => methane"	K00577	mtrA	Tetrahydromethanopterin S-methyltransferase subunit A
+G	"Methanogenesis, CO2 => methane or acetate => methane"	K00578	mtrB	Tetrahydromethanopterin S-methyltransferase subunit B
+G	"Methanogenesis, CO2 => methane or acetate => methane"	K00579	mtrC	Tetrahydromethanopterin S-methyltransferase subunit C
+G	"Methanogenesis, CO2 => methane or acetate => methane"	K00580	mtrD	Tetrahydromethanopterin S-methyltransferase subunit D 
+G	"Methanogenesis, CO2 => methane or acetate => methane"	K00581	mtrE	Tetrahydromethanopterin S-methyltransferase subunit E
+G	"Methanogenesis, CO2 => methane or acetate => methane"	K00582	mtrF	Tetrahydromethanopterin S-methyltransferase subunit F 
+G	"Methanogenesis, CO2 => methane or acetate => methane"	K00583	mtrG	Tetrahydromethanopterin S-methyltransferase subunit G
+G	"Methanogenesis, CO2 => methane or acetate => methane"	K00584	mtrH	Tetrahydromethanopterin S-methyltransferase subunit H
+G	"Methanogenesis, methanol => methane"	K14080	mtaA	[Methyl-Co(III) methanol/glycine betaine-specific corrinoid protein]:coenzyme M methyltransferase
+G	"Methanogenesis, methanol => methane"	K04480	mtaB	Methanol---5-hydroxybenzimidazolylcobamide Comethyltransferase
+G	"Methanogenesis, methylamine/dimeth ylamine/trimethylamine => methane"	K14082	mtbA	[Methyl-Co(III) methylamine-specific corrinoid protein]:coenzyme M methyltransferase
+G	"Methanogenesis, methylamine/dimeth ylamine/trimethylamine => methane"	K16178	mtbB	Dimethylamine---corrinoid protein Comethyltransferase 
+G	"Methanogenesis, methylamine/dimeth ylamine/trimethylamine => methane"	K16176	mtmB	Methylamine---corrinoid protein Co-methyltransferase
+G	"Methanogenesis, methylamine/dimeth ylamine/trimethylamine => methane"	K14083	mttB	Trimethylamine---corrinoid protein Comethyltransferase
+G	Methanogenesis from glycine betaine	K25220	mtgB	Glycine betaine---corrinoid protein Co-methyltransferas 
+H	"Carbon fixation, 3HP/4HB"	K14468	mcr	Malonyl-CoA reductase / 3-hydroxypropionate dehydrogenase (NADP+)
+H	"Carbon fixation, 3HP/4HB"	K14449	"mch, mcd"	2-methylfumaryl-CoA hydratase
+H	"Carbon fixation, CBB cycle (Rubisco)"	K01601	"rbcL, cbbL"	Ribulose-bisphosphate carboxylase large chain
+H	"Carbon fixation, CBB cycle (Rubisco)"	K01602	"rbcS, cbbS"	Ribulose-bisphosphate carboxylase small chain
+H	"Carbon fixation, CBB cycle (Rubisco)"	K00855	prk	Phosphoribulokinase
+H	"Carbon fixation, reverse TCA cycle"	K15230	aclA	ATP-citrate lyase alpha-subunit
+H	"Carbon fixation, reverse TCA cycle"	K15231	aclB	ATP-citrate lyase beta-subunit
+H	"Carbon fixation, reverse TCA cycle"	K15232	ccsA	Citryl-CoA synthetase large subunit
+H	"Carbon fixation, reverse TCA cycle"	K15233	ccsB	Citryl-CoA synthetase small subunit
+H	"Carbon fixation, reverse TCA cycle"	K15234	ccl	Citryl-CoA lyase
+H	"Carbon fixation, reverse TCA cycle"	K00174	"korA, oorA, oforA"	2-oxoglutarate/2-oxoacid ferredoxin oxidoreductase subunit alpha
+H	"Carbon fixation, reverse TCA cycle"	PAB0344	korB	2-oxoacid oxidoreductase (ferredoxin)
+H	"Carbon fixation, reverse TCA cycle"	K00244	frdA	Fumarate reductase flavoprotein subunit (EC 1.3.5.4)
+H	"Carbon fixation, reverse TCA cycle"	K00245	frdB	Fumarate reductase iron-sulfur subunit (EC 1.3.5.1)
+H	"Carbon fixation, Wood?Ljungdahl"	K00198	"cooS, acsA"	Anaerobic carbon-monoxide dehydrogenase catalytic subunit
+H	"Carbon fixation, Wood?Ljungdahl"	K14138	acsB	Acetyl-CoA synthase
+H	"Carbon fixation, Wood?Ljungdahl"	K00197	"cdhE, acsC"	"Acetyl-CoA decarbonylase/synthase, CODH/ACS complex subunit gamma"
+H	"Carbon fixation, Wood?Ljungdahl"	K01500	fchA	Methenyltetrahydrofolate cyclohydrolase
+H	"Carbon fixation, Wood?Ljungdahl"	K00194	"cdhD , acsD"	"Acetyl-CoA decarbonylase/synthase, CODH/ACS complex subunit delta"
+I	Nitrogen fixation	K02586	nifD	Nitrogenase molybdenum-iron protein alpha chain
+I	Nitrogen fixation	K02591	nifK	Nitrogenase molybdenum-iron protein beta chain
+I	Nitrogen fixation	K02588	nifH	Nitrogenase iron protein NifH
