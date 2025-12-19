@@ -1,12 +1,12 @@
 ---
 title: "Clogging_Magnus"
 author: "Anders Johnson"
-date: "2025-12-13"
+date: "2025-12-19"
 output: html_document
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_knit$set(root.dir = "Path/To/Working/directory/Clogging_R") ##set the working directory
+knitr::opts_knit$set(root.dir = "Pathway/to/root/directory") ##set the working directory
 ```
 
 
@@ -68,11 +68,6 @@ sessionInfo()
 myColors <- c("#89C5DA", "#DA5724", "#74D944", "#CE50CA", "#3F4921", "#C0717C", "#CBD588", "#5F7FC7", "#673770", "#D3D93E", "#38333E", "#508578", "#D7C1B1", "#689030", "#AD6F3B", "#CD9BCD", "#D14285", "#6DDE88", "#652926", "#7FDCC0", "#C84248", "#8569D5", "#5E738F", "#D1A33D", "#8A7C64", "#599861")
 ```
 
-
-##set the working directory
-```{r set working directory}
-#setwd("C:/Users/anjoad/Documents/Laboratory Journal/Projects/SKB Clogging and CCC Forsmark/Clogging_R")
-```
 
 
 ###geochemistry data
@@ -1474,7 +1469,7 @@ asvs_f %>%
     y = relab, 
     fill = fct_relevel(topfamily, "Other" , after = Inf))) +
   geom_col() +
-    facet_grid(. ~ factor(sampling_year, levels = c("0", "1", "2", "3", "4")), scales = "free_x", drop = TRUE) + #this line of code splits the figure by the year levels
+    facet_grid(. ~ factor(Incubation_time_yrs, levels = c("0", "1", "2", "3", "4")), scales = "free_x", drop = TRUE) + #this line of code splits the figure by the year levels
   scale_fill_manual(values = myColors) +
   coord_flip() +
   labs(title = "Top 20 Family-Allsamples")+
@@ -1487,7 +1482,7 @@ asvs_f %>%
 ```
 
 ```{r}
-ggsave("Results/Microbiology/Family/Figures/Clogging_magnus_StackedBar_Top_20_family_sampling_year_relevel_decontam_stage_0_common_contam_removed.pdf",scale = 2, width = 18, height = 40, units = "cm")
+ggsave("Results/Microbiology/Family/Figures/Clogging_magnus_StackedBar_Top_20_family_incubation_time_year_relevel_decontam_stage_0_common_contam_removed.pdf",scale = 2, width = 18, height = 40, units = "cm")
 ```
 
 
@@ -1570,6 +1565,10 @@ print(wide_table_relabs)
 #
 #
 
+
+
+
+
 ```{r, decontamination lists}
 stage_1_decontamination_list <-c(
 	"P37057_1011" , 	#Macadam Lysis buffer - 1 - control for this list
@@ -1645,9 +1644,36 @@ stage_4_decontamination_list <- c(
 	"P37057_1083" ) 	#Clogging macadam end 23/1-25 B1-5
 
 
+stage_0_decontamination_samples_list_toExclude <- c(
+  "P37057_1005","P37057_1017","P37057_1020","P37057_1040",
+  "P37057_1043","P37057_1053","P37057_1058","P37057_1069",
+  "P37057_1011","P37057_1012","P37057_1028","P37057_1029",
+  "P37057_1013","P37057_1014","P37057_1015","P37057_1016",
+  "P37057_1021","P37057_1022","P37057_1023","P37057_1025",
+  "P37057_1026","P37057_1037","P37057_1039","P37057_1050",
+  "P37057_1052","P37057_1055","P37057_1057","P37057_1061",
+  "P37057_1062","P37057_1065","P37057_1066","P37057_1084",
+  "P37057_1027","P37057_1018","P37057_1019","P37057_1030",
+  "P37057_1031","P37057_1032","P37057_1033","P37057_1034",
+  "P37057_1035","P37057_1036","P37057_1038","P37057_1044",
+  "P37057_1045","P37057_1046","P37057_1047","P37057_1048",
+  "P37057_1049","P37057_1051","P37057_1054","P37057_1056",
+  "P37057_1059","P37057_1060","P37057_1063","P37057_1064",
+  "P37057_1083" )
 
 ```
 
+```{r}
+#samples to keep from stage 0 decontamination
+#
+ASVs_decontam_stage_0_kept <- ASVs_decontam_stage_0 
+
+ASVs_decontam_stage_0_kept <- ASVs_decontam_stage_0_kept %>%
+  dplyr::select(-all_of(stage_0_decontamination_samples_list_toExclude))
+
+
+
+```
 
 
 ##using the output of the original decontamination (stage_0), subset the data based on decontamination_stage_#, run the individual decontaminations, then merge the datasets bask together into the final decontaminated form 
@@ -1927,11 +1953,9 @@ write.csv(contams_list_stage_4, "Results/Microbiology/Decontamination/contaminan
 
 ```{r merge the individual decontaminated lists}
 
-borehole_ASVS_decontam_stage_0 <- ASVs_decontam_stage_0 %>%
-  dplyr::select(c(seqid, P37057_1001 , P37057_1002 , P37057_1003 , P37057_1004 , P37057_1067 , P37057_1068))
 
 combining_decontam_ASV_list <- list(
-  borehole_ASVS_decontam_stage_0,
+  ASVs_decontam_stage_0_kept,
   ASVs_decontam_stage_1,
   ASVs_decontam_stage_2,
   ASVs_decontam_stage_3,
@@ -1946,12 +1970,17 @@ write.csv(ASVs_decontam_final, "Results/Microbiology/Decontamination/ASVs_decont
 ###clean the metadata according to the final stage decontamination
 
 ```{r}
-decontaminated_asv_list <- colnames(ASVs_decontam_final)[-1]  #pull list of samples remaining after decontamination cleaning
+decontaminated_asv_list <- colnames(ASVs_decontam_final)[colnames(ASVs_decontam_final) != "seqid"]  #pull list of samples remaining after decontamination cleaning
 
 samples_decontamed <- metadata %>%
   dplyr::filter(sample %in% decontaminated_asv_list)
 
-samples_decontamed_metadata <- samples_decontamed[match(decontaminated_asv_list, samples_decontamed$sample),]
+metadata_decontamed <- samples_decontamed
+
+#check for mismatches
+setdiff(decontaminated_asv_list, samples_decontamed$sample)  # should return character(0)
+setdiff(samples_decontamed$sample, decontaminated_asv_list)  # should return character(0)
+
   
 ```
 
@@ -2013,7 +2042,7 @@ sample_names_relevel_decontam <- c(
 
 ```{r}
 # Read in metadata file
-samples_decontamed <- samples_decontamed_metadata
+samples_decontamed <- metadata_decontamed
 
 print(sample_names_relevel)
 
@@ -2164,13 +2193,13 @@ mutate(relab_adjusted = case_when(
     new_names == "Biofilm_Tef" & Incubation_time_yrs == "2" ~ relab / 3,
     new_names == "Biofilm_Tef" & Incubation_time_yrs == "4" ~ relab / 2,
 
-    new_names == "Outlet_SS" & Incubation_time_yrs == "0" ~ relab / 2,
+    new_names == "Outlet_SS" & Incubation_time_yrs == "0" ~ relab / 4,
     new_names == "Outlet_SS" & Incubation_time_yrs == "1" ~ relab / 4,
     new_names == "Outlet_SS" & Incubation_time_yrs == "2" ~ relab / 2,
     new_names == "Outlet_SS" & Incubation_time_yrs == "3" ~ relab / 1,
     new_names == "Outlet_SS" & Incubation_time_yrs == "4" ~ relab / 1,
     
-    new_names == "Outlet_Tef" & Incubation_time_yrs == "0" ~ relab / 2,
+    new_names == "Outlet_Tef" & Incubation_time_yrs == "0" ~ relab / 4,
     new_names == "Outlet_Tef" & Incubation_time_yrs == "1" ~ relab / 4,
     new_names == "Outlet_Tef" & Incubation_time_yrs == "2" ~ relab / 2,
     new_names == "Outlet_Tef" & Incubation_time_yrs == "3" ~ relab / 1,
@@ -2289,13 +2318,13 @@ mutate(relab_adjusted = case_when(
     new_names == "Biofilm_Tef" & Incubation_time_yrs == "2" ~ relab / 3,
     new_names == "Biofilm_Tef" & Incubation_time_yrs == "4" ~ relab / 2,
 
-    new_names == "Outlet_SS" & Incubation_time_yrs == "0" ~ relab / 2,
+    new_names == "Outlet_SS" & Incubation_time_yrs == "0" ~ relab / 4,
     new_names == "Outlet_SS" & Incubation_time_yrs == "1" ~ relab / 4,
     new_names == "Outlet_SS" & Incubation_time_yrs == "2" ~ relab / 2,
     new_names == "Outlet_SS" & Incubation_time_yrs == "3" ~ relab / 1,
     new_names == "Outlet_SS" & Incubation_time_yrs == "4" ~ relab / 1,
     
-    new_names == "Outlet_Tef" & Incubation_time_yrs == "0" ~ relab / 2,
+    new_names == "Outlet_Tef" & Incubation_time_yrs == "0" ~ relab / 4,
     new_names == "Outlet_Tef" & Incubation_time_yrs == "1" ~ relab / 4,
     new_names == "Outlet_Tef" & Incubation_time_yrs == "2" ~ relab / 2,
     new_names == "Outlet_Tef" & Incubation_time_yrs == "3" ~ relab / 1,
@@ -2350,13 +2379,13 @@ final_table_relabs_adjusted <- final_table %>%
     new_names == "Biofilm_Tef" & Incubation_time_yrs == "2" ~ relab / 3,
     new_names == "Biofilm_Tef" & Incubation_time_yrs == "4" ~ relab / 2,
 
-    new_names == "Outlet_SS" & Incubation_time_yrs == "0" ~ relab / 2,
+    new_names == "Outlet_SS" & Incubation_time_yrs == "0" ~ relab / 4,
     new_names == "Outlet_SS" & Incubation_time_yrs == "1" ~ relab / 4,
     new_names == "Outlet_SS" & Incubation_time_yrs == "2" ~ relab / 2,
     new_names == "Outlet_SS" & Incubation_time_yrs == "3" ~ relab / 1,
     new_names == "Outlet_SS" & Incubation_time_yrs == "4" ~ relab / 1,
     
-    new_names == "Outlet_Tef" & Incubation_time_yrs == "0" ~ relab / 2,
+    new_names == "Outlet_Tef" & Incubation_time_yrs == "0" ~ relab / 4,
     new_names == "Outlet_Tef" & Incubation_time_yrs == "1" ~ relab / 4,
     new_names == "Outlet_Tef" & Incubation_time_yrs == "2" ~ relab / 2,
     new_names == "Outlet_Tef" & Incubation_time_yrs == "3" ~ relab / 1,
@@ -2738,10 +2767,6 @@ print(Total_family_merged_table_wide)
 #### repeat above merging the Biofilm_SS and _Tef, Outlet_SS and _Tef
 
 
-
-
-
-
 ```{r, creating table using the function, combining SS and Tef data for biofilm and outlet}
 final_table_combo <- asvs_f_decontamed %>%
   inner_join(taxonomy_f_decontamed, by = 'seqid') %>%
@@ -2769,13 +2794,13 @@ final_table_combo_relabs_adjusted <- final_table_combo %>%
     new_names == "Biofilm_Tef" & Incubation_time_yrs == "2" ~ relab / 3,
     new_names == "Biofilm_Tef" & Incubation_time_yrs == "4" ~ relab / 2,
 
-    new_names == "Outlet_SS" & Incubation_time_yrs == "0" ~ relab / 2,
+    new_names == "Outlet_SS" & Incubation_time_yrs == "0" ~ relab / 4,
     new_names == "Outlet_SS" & Incubation_time_yrs == "1" ~ relab / 4,
     new_names == "Outlet_SS" & Incubation_time_yrs == "2" ~ relab / 2,
     new_names == "Outlet_SS" & Incubation_time_yrs == "3" ~ relab / 1,
     new_names == "Outlet_SS" & Incubation_time_yrs == "4" ~ relab / 1,
     
-    new_names == "Outlet_Tef" & Incubation_time_yrs == "0" ~ relab / 2,
+    new_names == "Outlet_Tef" & Incubation_time_yrs == "0" ~ relab / 4,
     new_names == "Outlet_Tef" & Incubation_time_yrs == "1" ~ relab / 4,
     new_names == "Outlet_Tef" & Incubation_time_yrs == "2" ~ relab / 2,
     new_names == "Outlet_Tef" & Incubation_time_yrs == "3" ~ relab / 1,
@@ -3093,13 +3118,13 @@ mutate(relab_adjusted = case_when(
     new_names == "Biofilm_Tef" & Incubation_time_yrs == "2" ~ relab / 3,
     new_names == "Biofilm_Tef" & Incubation_time_yrs == "4" ~ relab / 2,
 
-    new_names == "Outlet_SS" & Incubation_time_yrs == "0" ~ relab / 2,
+    new_names == "Outlet_SS" & Incubation_time_yrs == "0" ~ relab / 4,
     new_names == "Outlet_SS" & Incubation_time_yrs == "1" ~ relab / 4,
     new_names == "Outlet_SS" & Incubation_time_yrs == "2" ~ relab / 2,
     new_names == "Outlet_SS" & Incubation_time_yrs == "3" ~ relab / 1,
     new_names == "Outlet_SS" & Incubation_time_yrs == "4" ~ relab / 1,
     
-    new_names == "Outlet_Tef" & Incubation_time_yrs == "0" ~ relab / 2,
+    new_names == "Outlet_Tef" & Incubation_time_yrs == "0" ~ relab / 4,
     new_names == "Outlet_Tef" & Incubation_time_yrs == "1" ~ relab / 4,
     new_names == "Outlet_Tef" & Incubation_time_yrs == "2" ~ relab / 2,
     new_names == "Outlet_Tef" & Incubation_time_yrs == "3" ~ relab / 1,
@@ -3218,13 +3243,13 @@ mutate(relab_adjusted = case_when(
     new_names == "Biofilm_Tef" & Incubation_time_yrs == "2" ~ relab / 3,
     new_names == "Biofilm_Tef" & Incubation_time_yrs == "4" ~ relab / 2,
 
-    new_names == "Outlet_SS" & Incubation_time_yrs == "0" ~ relab / 2,
+    new_names == "Outlet_SS" & Incubation_time_yrs == "0" ~ relab / 4,
     new_names == "Outlet_SS" & Incubation_time_yrs == "1" ~ relab / 4,
     new_names == "Outlet_SS" & Incubation_time_yrs == "2" ~ relab / 2,
     new_names == "Outlet_SS" & Incubation_time_yrs == "3" ~ relab / 1,
     new_names == "Outlet_SS" & Incubation_time_yrs == "4" ~ relab / 1,
     
-    new_names == "Outlet_Tef" & Incubation_time_yrs == "0" ~ relab / 2,
+    new_names == "Outlet_Tef" & Incubation_time_yrs == "0" ~ relab / 4,
     new_names == "Outlet_Tef" & Incubation_time_yrs == "1" ~ relab / 4,
     new_names == "Outlet_Tef" & Incubation_time_yrs == "2" ~ relab / 2,
     new_names == "Outlet_Tef" & Incubation_time_yrs == "3" ~ relab / 1,
@@ -3344,13 +3369,13 @@ mutate(relab_adjusted = case_when(
     new_names == "Biofilm_Tef" & Incubation_time_yrs == "2" ~ relab / 3,
     new_names == "Biofilm_Tef" & Incubation_time_yrs == "4" ~ relab / 2,
 
-    new_names == "Outlet_SS" & Incubation_time_yrs == "0" ~ relab / 2,
+    new_names == "Outlet_SS" & Incubation_time_yrs == "0" ~ relab / 4,
     new_names == "Outlet_SS" & Incubation_time_yrs == "1" ~ relab / 4,
     new_names == "Outlet_SS" & Incubation_time_yrs == "2" ~ relab / 2,
     new_names == "Outlet_SS" & Incubation_time_yrs == "3" ~ relab / 1,
     new_names == "Outlet_SS" & Incubation_time_yrs == "4" ~ relab / 1,
     
-    new_names == "Outlet_Tef" & Incubation_time_yrs == "0" ~ relab / 2,
+    new_names == "Outlet_Tef" & Incubation_time_yrs == "0" ~ relab / 4,
     new_names == "Outlet_Tef" & Incubation_time_yrs == "1" ~ relab / 4,
     new_names == "Outlet_Tef" & Incubation_time_yrs == "2" ~ relab / 2,
     new_names == "Outlet_Tef" & Incubation_time_yrs == "3" ~ relab / 1,
@@ -3470,13 +3495,13 @@ mutate(relab_adjusted = case_when(
     new_names == "Biofilm_Tef" & Incubation_time_yrs == "2" ~ relab / 3,
     new_names == "Biofilm_Tef" & Incubation_time_yrs == "4" ~ relab / 2,
 
-    new_names == "Outlet_SS" & Incubation_time_yrs == "0" ~ relab / 2,
+    new_names == "Outlet_SS" & Incubation_time_yrs == "0" ~ relab / 4,
     new_names == "Outlet_SS" & Incubation_time_yrs == "1" ~ relab / 4,
     new_names == "Outlet_SS" & Incubation_time_yrs == "2" ~ relab / 2,
     new_names == "Outlet_SS" & Incubation_time_yrs == "3" ~ relab / 1,
     new_names == "Outlet_SS" & Incubation_time_yrs == "4" ~ relab / 1,
     
-    new_names == "Outlet_Tef" & Incubation_time_yrs == "0" ~ relab / 2,
+    new_names == "Outlet_Tef" & Incubation_time_yrs == "0" ~ relab / 4,
     new_names == "Outlet_Tef" & Incubation_time_yrs == "1" ~ relab / 4,
     new_names == "Outlet_Tef" & Incubation_time_yrs == "2" ~ relab / 2,
     new_names == "Outlet_Tef" & Incubation_time_yrs == "3" ~ relab / 1,
@@ -3534,13 +3559,13 @@ final_table_relabs_adjusted <- final_table_g %>%
     new_names == "Biofilm_Tef" & Incubation_time_yrs == "2" ~ relab / 3,
     new_names == "Biofilm_Tef" & Incubation_time_yrs == "4" ~ relab / 2,
 
-    new_names == "Outlet_SS" & Incubation_time_yrs == "0" ~ relab / 2,
+    new_names == "Outlet_SS" & Incubation_time_yrs == "0" ~ relab / 4,
     new_names == "Outlet_SS" & Incubation_time_yrs == "1" ~ relab / 4,
     new_names == "Outlet_SS" & Incubation_time_yrs == "2" ~ relab / 2,
     new_names == "Outlet_SS" & Incubation_time_yrs == "3" ~ relab / 1,
     new_names == "Outlet_SS" & Incubation_time_yrs == "4" ~ relab / 1,
     
-    new_names == "Outlet_Tef" & Incubation_time_yrs == "0" ~ relab / 2,
+    new_names == "Outlet_Tef" & Incubation_time_yrs == "0" ~ relab / 4,
     new_names == "Outlet_Tef" & Incubation_time_yrs == "1" ~ relab / 4,
     new_names == "Outlet_Tef" & Incubation_time_yrs == "2" ~ relab / 2,
     new_names == "Outlet_Tef" & Incubation_time_yrs == "3" ~ relab / 1,
@@ -3953,13 +3978,13 @@ final_table_combo_relabs_adjusted_g <- final_table_combo_g %>%
     new_names == "Biofilm_Tef" & Incubation_time_yrs == "2" ~ relab / 3,
     new_names == "Biofilm_Tef" & Incubation_time_yrs == "4" ~ relab / 2,
 
-    new_names == "Outlet_SS" & Incubation_time_yrs == "0" ~ relab / 2,
+    new_names == "Outlet_SS" & Incubation_time_yrs == "0" ~ relab / 4,
     new_names == "Outlet_SS" & Incubation_time_yrs == "1" ~ relab / 4,
     new_names == "Outlet_SS" & Incubation_time_yrs == "2" ~ relab / 2,
     new_names == "Outlet_SS" & Incubation_time_yrs == "3" ~ relab / 1,
     new_names == "Outlet_SS" & Incubation_time_yrs == "4" ~ relab / 1,
     
-    new_names == "Outlet_Tef" & Incubation_time_yrs == "0" ~ relab / 2,
+    new_names == "Outlet_Tef" & Incubation_time_yrs == "0" ~ relab / 4,
     new_names == "Outlet_Tef" & Incubation_time_yrs == "1" ~ relab / 4,
     new_names == "Outlet_Tef" & Incubation_time_yrs == "2" ~ relab / 2,
     new_names == "Outlet_Tef" & Incubation_time_yrs == "3" ~ relab / 1,
@@ -4201,6 +4226,7 @@ write_csv(Total_genus_merged_table_wide_sd_combo_g , "Results/Microbiology/Genus
 
 
 ```{r}
+samples_decontamed_metadata <- samples_decontamed
 
 new_names_relevel_biofilm <- c("Biofilm_SS" , "Biofilm_Tef")
 
@@ -4223,7 +4249,7 @@ sequencing_depth_biofilm <- ASVs_decontam_final %>%
 #remove the control samples from the ongoing analysis
 
 
-asvs_decontam_final_biofilm<-sequencing_depth_biofilm%>%
+asvs_decontam_final_biofilm<-sequencing_depth_biofilm %>%
   gather(sample, count, 2:ncol(.)) %>% 
   filter(count > 0) %>%
   group_by(sample) %>% 
@@ -4478,8 +4504,8 @@ pcoa.clogging.bray.plot <- ggplot(pcoa.clogging.bray.plotting, aes(x = axis_1, y
   theme(plot.title =element_text(size= 5),
         axis.text = element_text(size= 5),)+
     labs(title = "Beta Diversity")+
-    xlab("PCA 1 (20.1%)") +
-    ylab("PCA 2 (9.1%)") +
+    xlab("PCA 1 (19.8%)") +
+    ylab("PCA 2 (9.2%)") +
     annotate(geom = 'text', label = 'Bray-Curtis', x = -.35, y = .45, hjust = .8, vjust = -1)
 
 plot(pcoa.clogging.bray.plot)
@@ -4515,7 +4541,7 @@ alpha <- alpha %>%
 plot.shan <- ggplot(alpha, aes(
   x = fct_relevel(new_names, !!!rev(Pca_legend_order)), 
   y = as.numeric(shannon), 
-  color = sampling_year)) +
+  color = new_names)) +
   geom_boxplot() +
   facet_grid(. ~ factor(Incubation_time_yrs, levels = c("0", "1", "2", "3", "4")), scales = "free_x", drop = TRUE) +
   #geom_point(size = 1.5) +
@@ -4531,7 +4557,7 @@ plot.shan <- ggplot(alpha, aes(
 plot.rich <-ggplot(alpha, aes(
   x = fct_relevel(new_names, !!!rev(Pca_legend_order)), 
   y = as.numeric(richness), 
-  color = sampling_year)) +
+  color = new_names)) +
   geom_boxplot() +
   #geom_point(size = 1.5) +
   scale_color_manual(values = myColors) +
@@ -4546,7 +4572,7 @@ plot.rich <-ggplot(alpha, aes(
 plot.even <- ggplot(alpha, aes(
   x = fct_relevel(new_names, !!!rev(Pca_legend_order)), 
   y = as.numeric(pielou), 
-  color = sampling_year)) +
+  color = new_names)) +
   geom_boxplot() +
   #geom_point(size = 1.5) +
   scale_color_manual(values = myColors) +
@@ -4841,7 +4867,7 @@ capture.output({
 library(Biostrings)
 library(seqinr)
 #read in the raw seq fasta files
-ASV_seqsFA <- readDNAStringSet("ASV_seqs.fasta")  
+ASV_seqsFA <- readDNAStringSet("Raw_data/ASV_seqs.fasta")  
 
 # Decontaminated ASV table
 RN_ASVs_decontam_final <- ASVs_decontam_final %>% 
@@ -4858,6 +4884,8 @@ writeXStringSet(
   ASV_seqFA_clean,
   filepath = "Results/Microbiology/Picrust_decontamed/for_ReRun_withDecontam/rerun_clean_ASV_seqs.fasta")
 
+write_tsv(ASVs_decontam_final, "Results/Microbiology/Picrust_decontamed/for_ReRun_withDecontam/clean_ASV_counts.tsv")
+
 ```
 
 
@@ -4870,21 +4898,21 @@ writeXStringSet(
 ###set the data for the new analyses, picrust output, metadata, ASVs, and taxonomoy. 
 ```{r, read in the picrust data}
 
-ko_file  <- read_tsv("Results/Microbiology/Picrust_decontamed/KO_pred_metagenome_unstrat_descrip.tsv",
+ko_file  <- read_tsv("Raw_data/Picrust_rerun/KO_pred_metagenome_unstrat_descrip.tsv",
   col_types = cols(.default = col_number(), 
                    `function` = col_character(),
                    description = col_character()))
 
 
 
-ec_file  <- read_tsv("Results/Microbiology/Picrust_decontamed/EC_pred_metagenome_unstrat_descrip.tsv",
+ec_file  <- read_tsv("Raw_data/Picrust_rerun/EC_pred_metagenome_unstrat_descrip.tsv",
   col_types = cols(.default = col_number(), 
                    `function` = col_character(),
                    description = col_character()))
 
 
 
-path_file<- read_tsv("Results/Microbiology/Picrust_decontamed/METACYC_path_abun_unstrat_descrip.tsv",
+path_file<- read_tsv("Raw_data/Picrust_rerun/METACYC_path_abun_unstrat_descrip.tsv",
   col_types = cols(.default = col_number(), 
                    pathway = col_character(),
                    description = col_character()))
@@ -4893,7 +4921,7 @@ path_file<- read_tsv("Results/Microbiology/Picrust_decontamed/METACYC_path_abun_
 ```
 
 ```{r, read in the KO_gene_list}
-gene_list <- read_csv("Results/Microbiology/Picrust_decontamed/KO_gene_list.csv",
+gene_list <- read_tsv("Raw_data/KO_gene_list.tsv",
                       col_types = cols(.default = col_character()))
 ```
 
@@ -4907,31 +4935,35 @@ picrust_ASVs <- ASVs_decontam_final
 # filter the ko_file based on my genes of interest in the gene_list
 
 ko_file_subset <- ko_file %>%
-  filter(`function` %in% gene_list$`KO identifier`)
+  filter(`function` %in% gene_list$`function`)
 
-ko_file_subset_long <- ko_file_subset %>%
+ko_file_subset_long <- ko_file %>%
+  right_join(
+    gene_list %>% dplyr::select(`function`, `Gene ID`, `Pathway category`, Gene_list_description),
+    by = "function"
+  ) %>%
   pivot_longer(
-    cols = -c(`function`, description),
+    cols = -c(`function`, description, Gene_list_description, `Gene ID`, `Pathway category`),
     names_to = "sample",
-    values_to = "abundance")
+    values_to = "abundance",
+    values_drop_na = FALSE
+  ) %>%
+  dplyr::select(-c("description")) %>%
+  mutate(abundance = replace_na(abundance, 0))
 
 ```
 
-```{r}
-#join the pathway information
-ko_long_annotated <- ko_file_subset_long %>%
-  left_join(gene_list, by = c("function" = "KO identifier"))
-```
+
 
 ```{r}
 ##ad the metadata to the ko_file
-ko_ready <- ko_long_annotated %>%
-  left_join(picrust_metadata_decontaminated, by = "sample")
+ko_ready <- ko_file_subset_long %>%
+  left_join(picrust_metadata_decontaminated, by = "sample") %>%
+  dplyr::select(-c("Old_names")) %>%
 
 #calc and include the relativa abundances for each sample
-ko_ready <- ko_ready %>%
   group_by(sample) %>%
-  mutate(relab = abundance / sum(abundance , na.rm = TRUE)) %>%
+  mutate(relab = abundance / sum(abundance)) %>%
   ungroup()
 
 ##check to make sure the the relabs for each sample sum to 1
@@ -4943,23 +4975,15 @@ ko_ready %>%
 
 
 
-```{r}
-##summarize by gene per sample
-
-gene_per_sample <- ko_ready %>%
-  group_by(sample, `Gene ID`) %>%
-  summarize(total = sum(abundance))
-```
 
 ```{r}
 ### summarize pathway per sample
 
 pathway_per_sample <- ko_ready %>%
-  group_by(sample, Pathway) %>%
+  group_by(sample, `Pathway category`) %>%
   summarize(total = sum(abundance))
 
 ```
-
 
 ```{r}
 ### summarize catagory per sample
@@ -4970,12 +4994,14 @@ pathway_Cat_per_sample <- ko_ready %>%
 
 ```
 
+
 ```{r}
 balloon_plot_data <- ko_ready %>%
   group_by(new_names, `Gene ID`, `Pathway category`, Incubation_time_yrs) %>%
-  summarize(mean_relab = sum(relab)) %>%
-  ungroup() %>%
+  summarize(mean_relab = sum(relab), .groups = "drop") 
+  
     
+balloon_plot_data <- balloon_plot_data %>%
 mutate(relab_adjusted = case_when(
     new_names == "Borehole" & Incubation_time_yrs == "0" ~ mean_relab / 4,
     new_names == "Borehole" & Incubation_time_yrs == "4" ~ mean_relab / 2,
@@ -4988,17 +5014,18 @@ mutate(relab_adjusted = case_when(
     new_names == "Biofilm_Tef" & Incubation_time_yrs == "2" ~ mean_relab / 3,
     new_names == "Biofilm_Tef" & Incubation_time_yrs == "4" ~ mean_relab / 2,
 
-    new_names == "Outlet_SS" & Incubation_time_yrs == "0" ~ mean_relab / 2,
+    new_names == "Outlet_SS" & Incubation_time_yrs == "0" ~ mean_relab / 4,
     new_names == "Outlet_SS" & Incubation_time_yrs == "1" ~ mean_relab / 4,
     new_names == "Outlet_SS" & Incubation_time_yrs == "2" ~ mean_relab / 2,
     new_names == "Outlet_SS" & Incubation_time_yrs == "3" ~ mean_relab / 1,
     new_names == "Outlet_SS" & Incubation_time_yrs == "4" ~ mean_relab / 1,
     
-    new_names == "Outlet_Tef" & Incubation_time_yrs == "0" ~ mean_relab / 2,
+    new_names == "Outlet_Tef" & Incubation_time_yrs == "0" ~ mean_relab / 4,
     new_names == "Outlet_Tef" & Incubation_time_yrs == "1" ~ mean_relab / 4,
     new_names == "Outlet_Tef" & Incubation_time_yrs == "2" ~ mean_relab / 2,
     new_names == "Outlet_Tef" & Incubation_time_yrs == "3" ~ mean_relab / 1,
-    new_names == "Outlet_Tef" & Incubation_time_yrs == "4" ~ mean_relab / 1
+    new_names == "Outlet_Tef" & Incubation_time_yrs == "4" ~ mean_relab / 1,
+    TRUE ~ 0 #keeps undetected genes and produces valid zeros
     ) * 100)#percents
 
 
@@ -5013,7 +5040,16 @@ balloon_plot_data <- balloon_plot_data %>%
                     "Outlet_SS",
                     "Outlet_Tef" )))
 
+
 ```  
+
+```{r}
+#structure the ordering of the Gene ID names for the plot
+
+Gene_ID_names_relevel <- genes_raw <- c("hndA", "hndB", "hndC", "hndD", "fccA", "fccB", "sor", "hdrA", "hdrB", "soxY", "soxX", "soxZ", "soxA", "soxB", "soxC", "doxA", "doxD", "doxDA", "tsdA", "tetH", "mdh1, mxaF" ,"mdh2, mxaI", "mmoB", "mmoC", "mmoD", "mmoX", "mmoY", "mmoZ", "pmoAamoA", "pmoBamoB", "pmoCamoC", "napA", "napB", "narG, narZ, nxrA", "narH, narY, nxrB", "narI, narV", "narJ, narW", "nirB", "nirD", "nrfA", "nrfH", "CYP55", "nirK", "nirS", "norB", "norC", "nosZ", "aprA", "aprB", "dsrA", "dsrB", "dsrK", "sat, met3", "asrA", "asrB", "asrC", "ttrA", "ttrB", "ttrC", "phsA, psrA", "phsB", "phsC", "arrA", "arrB", "serA", "serB", "serC", "hdrA1", "hdrA2", "hdrB1", "hdrB2", "hdrC1", "hdrC2", "mcrA", "mcrB", "mcrG", "ftr", "fwdA, fmdA", "fwdB, fmdB", "fwdC, fmdC", "fwdD, fmdD", "fwdE, fmdE", "fwdF, fmdF", "fwdG", "fwdH", "hmd", "mch", "mer", "mtd", "mtrA", "mtrB", "mtrC", "mtrD", "mtrE", "mtrF", "mtrG", "mtrH", "mtaA", "mtaB", "mtbA", "mtbB", "mtmB", "mttB", "mtgB", "mcr", "mch, mcd", "rbcL, cbbL", "rbcS, cbbS", "prk", "aclA", "aclB", "ccsA", "ccsB", "ccl", "korA, oorA, oforA", "korB", "frdA", "frdB", "cooS, acsA", "acsB", "cdhE, acsC", "fchA", "cdhD , acsD", "nifD", "nifK", "nifH")
+
+```
+
   
 ```{r}
 #define colors for this plot, color blind safe
@@ -5028,18 +5064,22 @@ balloon_plot_colors <- c(
 
 ggplot(balloon_plot_data, 
        aes(x = Incubation_time_yrs, 
-           y = `Gene ID`,
+           y = fct_relevel(`Gene ID`, !!!rev(Gene_ID_names_relevel)),
            size = ifelse(relab_adjusted > 0, relab_adjusted, NA),
            color = new_names)) +
-  geom_point(alpha = 0.7) +
+  geom_point(alpha = .7) +
   
   facet_grid(
   `Pathway category` ~ factor(new_names, levels = c("Borehole","Biofilm_SS","Biofilm_Tef","Outlet_SS", "Outlet_Tef")),
 # `Pathway category` ~ factor(Incubation_time_yrs, levels = c("0","1","2","3","4")),
   scales = "free",
-  space  = "free" ) +
+  space  = "free",
+  drop = FALSE) +
   
-  scale_size_continuous(name = "Mean Relab %") + 
+  scale_size_continuous(name = "Mean Relab %",
+                        range = c(0.01, 5),
+                        #trans = "sqrt",
+                        breaks = c(0.1, 0.5, 1, 2, 5, 10, 20))  +
   scale_color_manual(
     name = "Sample type",
     values = balloon_plot_colors) +
@@ -5054,5 +5094,62 @@ ggplot(balloon_plot_data,
 ```
 
 ```{r}
-ggsave("Results/Microbiology/Picrust_decontamed/Figures/Clogging_Picrust_decontamed_GeneID_pathCategory.pdf" ,scale = 1.5, width = 15 , height = 25, units = "cm")
+ggsave("Results/Microbiology/Picrust_decontamed/Figures/Clogging_Picrust_decontamed_GeneID_pathCategory_final.pdf" ,scale = 1.5, width = 15 , height = 50, units = "cm")
 ```
+
+
+
+```{r}
+Gene_ID_names_relevel_fig_subset <- Gene_ID_names_relevel[!Gene_ID_names_relevel %in% c("doxA" , "doxDA", "tetH" , "napA" , "napB" , "dsrK" , "asrA" , "asrB" , "asrC" , "ttrA" , "ttrC" , "phsB" , "phsC" , "mcr" , "korB" , "fchA")] 
+```
+
+
+```{r}
+
+balloon_plot_data_fig_subset <- balloon_plot_data %>%
+  dplyr::filter(!(`Gene ID` %in% c("doxA" , "doxDA", "tetH" , "napA" , "napB" , "dsrK" , "asrA" , "asrB" , "asrC" , "ttrA" , "ttrC" , "phsB" , "phsC" , "mcr" , "korB" , "fchA")))
+
+ggplot(balloon_plot_data_fig_subset, 
+       aes(x = Incubation_time_yrs, 
+           y = fct_relevel(`Gene ID`, !!!rev(Gene_ID_names_relevel_fig_subset)),
+           size = ifelse(relab_adjusted > 0, relab_adjusted, NA),
+           color = new_names)) +
+  geom_point(alpha = .7) +
+  
+  facet_grid(
+  `Pathway category` ~ factor(new_names, levels = c("Borehole","Biofilm_SS","Biofilm_Tef","Outlet_SS", "Outlet_Tef")),
+# `Pathway category` ~ factor(Incubation_time_yrs, levels = c("0","1","2","3","4")),
+  scales = "free",
+  space  = "free",
+  drop = FALSE) +
+  
+  scale_size_continuous(name = "Mean Relab %",
+                        range = c(0.01, 5),
+                        #trans = "sqrt",
+                        breaks = c(0.01, 0.5, 1, 2, 5, 10, 20))  +
+  scale_color_manual(
+    name = "Sample type",
+    values = balloon_plot_colors) +
+  
+  theme_bw() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    strip.background = element_rect(fill = "grey90"),
+    strip.text.y = element_text(angle = 0))
+
+
+```
+
+
+
+```{r}
+ggsave("Results/Microbiology/Picrust_decontamed/Figures/Clogging_Picrust_decontamed_GeneID_pathCategory_subset.pdf" ,scale = 1.5, width = 15 , height = 50, units = "cm")
+```
+
+
+
+
+
+
+
+
