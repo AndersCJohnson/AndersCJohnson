@@ -1,12 +1,12 @@
 ---
 title: "Clogging_Magnus"
 author: "Anders Johnson"
-date: "2025-12-19"
+date: "2025-12-13"
 output: html_document
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_knit$set(root.dir = "Pathway/to/root/directory") ##set the working directory
+knitr::opts_knit$set(root.dir = "C:/Users/anjoad/Documents/Laboratory Journal/Projects/SKB Clogging and CCC Forsmark/Clogging_R") ##set the working directory
 ```
 
 
@@ -57,11 +57,22 @@ library(purrr)
 
 ```
 
+
+
+```{r}
+sessionInfo()
+```
+
 # set the color palette. this color palette is useful because its colors are easily distinguishable from one another and prohibits the rainboweffect from happening
 ```{r set the color palette}
 myColors <- c("#89C5DA", "#DA5724", "#74D944", "#CE50CA", "#3F4921", "#C0717C", "#CBD588", "#5F7FC7", "#673770", "#D3D93E", "#38333E", "#508578", "#D7C1B1", "#689030", "#AD6F3B", "#CD9BCD", "#D14285", "#6DDE88", "#652926", "#7FDCC0", "#C84248", "#8569D5", "#5E738F", "#D1A33D", "#8A7C64", "#599861")
 ```
 
+
+##set the working directory
+```{r set working directory}
+#setwd("C:/Users/anjoad/Documents/Laboratory Journal/Projects/SKB Clogging and CCC Forsmark/Clogging_R")
+```
 
 
 ###geochemistry data
@@ -1540,6 +1551,50 @@ print(wide_table_relabs)
 
 ```
 
+```{r}
+# Merge ASVs, taxonomy, and metadata
+
+# Merge asvs with taxonomy and metadata
+final_table_macadam <- asvs_f %>%
+  inner_join(taxonomy_f, by = "seqid") %>%
+  inner_join(metadata, by = "sample") %>%
+  group_by(topfamily, sample,Your_sample_name, sampling_year, new_names, Incubation_time_yrs, sample_source) %>%
+  summarise(relab = sum(relab), .groups = "drop")
+
+
+macadam_relab_wide <- final_table_macadam %>%
+  filter(sample_source == "macadam") %>%
+  dplyr::select(new_names, Incubation_time_yrs, sample, topfamily, relab) %>%  # Keep topfamily and relab per sample
+  group_by(new_names, Incubation_time_yrs, sample, topfamily) %>%
+  summarise(relab = sum(relab), .groups = "drop") %>%
+  pivot_wider(names_from = topfamily, values_from = relab, values_fill = 0) %>% # Pivot longer so each row = sample × family
+  rowwise() %>% # Normalize each sample so relabs sum to 1
+  mutate(across(-c(new_names, Incubation_time_yrs, sample), ~ .x *100/ sum(c_across(-c(new_names, Incubation_time_yrs, sample))))) %>%
+  ungroup() %>%
+  mutate(group = case_when(
+    new_names %in% c("Biofilm_SS", "Biofilm_Tef") ~ "Biofilm", TRUE ~ new_names )) %>%
+  
+  group_by(group, Incubation_time_yrs) %>%
+  # Compute mean and SD separately
+  
+  summarise(across(where(is.numeric), list(mean = mean, sd = sd)), .groups = "drop" ) %>%
+  # Pivot longer to create stat rows
+  pivot_longer(cols = -c(group, Incubation_time_yrs),
+               names_to = c("family", "stat"),
+               names_sep = "_",
+               values_to = "value") %>%
+  pivot_wider(names_from = family, values_from = value) %>%
+  relocate(Other, .after = stat)
+
+# Save outputs for inspection
+write_csv(macadam_relab_wide, "Results/Microbiology/Family/Tables/grouped_incubation_years_family_macadam_relab_decontam_stage_0_biofilm.csv")
+
+
+# Print previews
+print(macadam_relab_wide)
+```
+
+
 
 #
 #
@@ -3015,6 +3070,77 @@ write_csv(Total_family_merged_table_wide_sd_combo , "Results/Microbiology/Family
 
 ```
 
+```{r,Biofilm relab stats}
+
+biofilm_fam <- asvs_f_decontamed %>%
+  inner_join(taxonomy_f_decontamed, by = 'seqid') %>%
+  inner_join(samples_decontamed, by = "sample") %>%
+  filter(new_names %in% c("Biofilm_SS", "Biofilm_Tef"))
+
+biofilm_fam_summary <- biofilm_fam %>%
+  group_by(sample, topfamily, Incubation_time_yrs) %>%
+  summarise(relab = sum(relab), .groups = "drop") %>%
+  group_by(topfamily, Incubation_time_yrs) %>%
+  summarise(mean_relab = mean(relab), .groups = "drop")
+
+top20_biofilm <- biofilm_fam_summary %>%
+  group_by(topfamily) %>%
+  summarise(total = sum(mean_relab)) %>%
+  slice_max(total, n = 20) %>%
+  pull(topfamily)
+
+biofilm_fam_summary <- biofilm_fam_summary %>%
+  filter(topfamily %in% top20_biofilm)
+
+
+biofilm_trends <- biofilm_fam_summary %>%
+  filter(Incubation_time_yrs %in% c(1, 4)) %>%
+  pivot_wider(names_from = Incubation_time_yrs, values_from = mean_relab) %>%
+  mutate(change = `4` - `1`) %>%
+  arrange(desc(change))
+
+
+biofilm_fam_sample <- asvs_f_decontamed %>%
+  inner_join(taxonomy_f_decontamed, by = "seqid") %>%
+  inner_join(samples_decontamed, by = "sample") %>%
+  filter(new_names %in% c("Biofilm_SS", "Biofilm_Tef")) %>%
+  filter(Incubation_time_yrs %in% c(1, 4)) %>%
+  group_by(sample, topfamily, Incubation_time_yrs) %>%
+  summarise(relab = sum(relab), .groups = "drop")
+
+wilcox_results <- biofilm_fam_sample %>%
+  group_by(topfamily) %>%
+  summarise(
+    p_value = wilcox.test(relab ~ Incubation_time_yrs)$p.value,
+    .groups = "drop"
+  ) %>%
+  mutate(p_adj = p.adjust(p_value, method = "BH")) %>%
+  arrange(p_adj)
+
+
+wilcox_results
+significant_families
+
+capture.output(
+  print(wilcox_results, n = Inf),
+  file = "Results/Microbiology/Indicies/Alpha_tables/biofilm_families_Wilcox-test.txt")
+
+wilcox_effects <- biofilm_fam_sample %>%
+  group_by(topfamily) %>%
+  summarise(
+    Year_1 = median(relab[Incubation_time_yrs == 1]),
+    Year_4 = median(relab[Incubation_time_yrs == 4]),
+    effect = Year_4 - Year_1
+  )
+
+wilcox_effects
+
+capture.output(
+  print(wilcox_effects, n= Inf),
+  file = "Results/Microbiology/Indicies/Alpha_tables/biofilm_families_Wilcox-effects.txt")
+
+
+```
 
 
 
@@ -4355,6 +4481,785 @@ ggsave("Results/Microbiology/Genus/Figures/Clogging_magnus_StackedBar_Top_20_gen
 
 
 
+## family
+
+```{r assign-top10-family-to-taxonomy}
+# Start by finding the top 11 family *on average* over the samples
+asvs_f_decontamed_biofilm <- asvs_decontam_final_biofilm
+
+f_decontamed_biofilm <- asvs_f_decontamed_biofilm %>%
+  inner_join(taxonomy, by = 'seqid') %>%
+  group_by(Family, sample) %>%
+  # Calculate the relative abundance of each family in each sample
+  summarise(relab = sum(relab)) %>%
+  # Calculate the *mean* relative abundance of each family over the samples
+  summarise(mean_relab = sum(relab)) %>%
+  ungroup() %>%
+  # Filter out non-assigned family
+  filter(!is.na(Family)) %>%
+  # Select the top 11
+  top_n(20, mean_relab)
+
+# Add this information to the taxonomy table as the column topfamily
+taxonomy_f_decontamed_biofilm <- taxonomy %>%
+  # Join in the top 10 table. *Important* with left join, otherwise you loose rows in the
+  # taxonomy table that do not appear in the top 11 table.
+  left_join(
+    f_decontamed_biofilm %>% 
+      # Duplicate the family column, with the old name and as "topfamily"
+      transmute(Family, topfamily = Family),
+    by = 'Family'
+  ) %>%
+  # Set topfamily to 'Other' for those that were not among the top 11
+  replace_na(list('topfamily' = 'Other'))
+```
+
+```{r}
+asvs_f_decontamed_biofilm %>%
+  left_join(taxonomy_f_decontamed_biofilm, by = 'seqid') %>%
+  group_by(sample, Family) %>% summarise(relab = sum(relab)) %>% ungroup() %>%
+  spread(sample, relab, fill = 0) %>%
+  write_csv('Results/Microbiology/Family/Tables/asvs_f_decontam_biofilm.tsv')
+```
+
+
+```{r plot-top-family}
+asvs_f_decontamed_biofilm %>%
+  inner_join(taxonomy_f_decontamed_biofilm, by = 'seqid') %>%
+  inner_join(samples_decontamed_biofilm, by = "sample")%>%
+  group_by(topfamily, sample, Your_sample_name, sampling_year,new_names, Incubation_time_yrs) %>% summarise(relab = sum(relab)) %>% ungroup() %>%
+    
+mutate(relab_adjusted = case_when(
+    
+    new_names == "Biofilm_SS" & Incubation_time_yrs == "1" ~ relab / 6,  
+    new_names == "Biofilm_SS" & Incubation_time_yrs == "2" ~ relab / 2,
+    new_names == "Biofilm_SS" & Incubation_time_yrs == "4" ~ relab / 3,
+    
+    new_names == "Biofilm_Tef" & Incubation_time_yrs == "1" ~ relab / 5,
+    new_names == "Biofilm_Tef" & Incubation_time_yrs == "2" ~ relab / 3,
+    new_names == "Biofilm_Tef" & Incubation_time_yrs == "4" ~ relab / 2
+    )) %>%
+  
+  ggplot(aes(
+    x = fct_relevel(new_names, !!!rev(new_names_relevel_biofilm)),
+    y = relab_adjusted, 
+    fill = fct_relevel(topfamily, "Other" , after = Inf))) +
+  geom_col() +
+    facet_grid(. ~ factor(Incubation_time_yrs, levels = c("0", "1", "2", "3", "4")), scales = "free_x", drop = TRUE) + #this line of code splits the figure by the year levels
+  scale_fill_manual(values = myColors) +
+  coord_flip() +
+  labs(title = "Top 20 Family-Allsamples")+
+  ylab("Relative Abundance")+
+  xlab("Your_sample_name")+
+  theme(
+   legend.position = 'bottom', legend.title = element_blank()) +
+  guides(fill = guide_legend(reverse = TRUE))
+    
+```
+
+
+```{r}
+ggsave("Results/Microbiology/Family/Figures/Clogging_magnus_StackedBar_Top_20_family_decontam_final_relevel_biofilm.pdf",scale = 2, width = 18, height = 13, units = "cm")
+```
+
+
+
+
+```{r,Biofilm relab stats}
+
+
+biofilm_fam_sample_biofilm <- asvs_f_decontamed_biofilm %>%
+  inner_join(taxonomy_f_decontamed_biofilm, by = 'seqid') %>%
+    inner_join(samples_decontamed, by = "sample") %>%
+    filter(Incubation_time_yrs %in% c(1,4)) %>%
+  group_by(topfamily, sample, sampling_year,new_names, Incubation_time_yrs) %>% 
+  summarise(relab = sum(relab), .groups = "drop")
+  
+  
+  
+  
+
+
+wilcox_results_biofilm <- biofilm_fam_sample_biofilm %>%
+  group_by(topfamily) %>%
+  summarise(
+    p_value = wilcox.test(relab ~ Incubation_time_yrs)$p.value,
+    .groups = "drop"
+  ) %>%
+  mutate(p_adj = p.adjust(p_value, method = "BH")) %>%
+  arrange(p_adj)
+
+
+wilcox_results_biofilm
+
+
+capture.output(
+  print(wilcox_results_biofilm, n = Inf),
+  file = "Results/Microbiology/Indicies/Alpha_tables/biofilm_families_Wilcox-test_SSvsTef.txt")
+
+wilcox_effects_biofilm <- biofilm_fam_sample_biofilm %>%
+  group_by(topfamily) %>%
+  summarise(
+    Year_1 = median(relab[Incubation_time_yrs == 1]),
+    Year_4 = median(relab[Incubation_time_yrs == 4]),
+    effect = Year_4 - Year_1)
+
+wilcox_effects_biofilm
+
+capture.output(
+  print(wilcox_effects_biofilm, n= Inf),
+  file = "Results/Microbiology/Indicies/Alpha_tables/biofilm_families_Wilcox-effects_SSsTef.txt")
+```
+
+
+
+
+
+## phylum
+
+```{r assign-top10-phylum-to-taxonomy}
+# Start by finding the top 11 phylum *on average* over the samples
+asvs_p_decontamed_biofilm <- asvs_decontam_final_biofilm
+
+p_decontamed_biofilm <- asvs_p_decontamed_biofilm %>%
+  inner_join(taxonomy, by = 'seqid') %>%
+  group_by(Phylum, sample) %>%
+  # Calculate the relative abundance of each phylum in each sample
+  summarise(relab = sum(relab)) %>%
+  # Calculate the *mean* relative abundance of each phylum over the samples
+  summarise(mean_relab = sum(relab)) %>%
+  ungroup() %>%
+  # Filter out non-assigned phylum
+  filter(!is.na(Phylum)) %>%
+  # Select the top 11
+  top_n(20, mean_relab)
+
+# Add this information to the taxonomy table as the column topphylum
+taxonomy_p_decontamed_biofilm <- taxonomy %>%
+  # Join in the top 10 table. *Important* with left join, otherwise you loose rows in the
+  # taxonomy table that do not appear in the top 11 table.
+  left_join(
+    p_decontamed_biofilm %>% 
+      # Duplicate the phylum column, with the old name and as "topphylum"
+      transmute(Phylum, topphylum = Phylum),
+    by = 'Phylum'
+  ) %>%
+  # Set topphylum to 'Other' for those that were not among the top 11
+  replace_na(list('topphylum' = 'Other'))
+```
+
+```{r}
+asvs_p_decontamed_biofilm %>%
+  left_join(taxonomy_p_decontamed_biofilm, by = 'seqid') %>%
+  group_by(sample, Phylum) %>% summarise(relab = sum(relab)) %>% ungroup() %>%
+  spread(sample, relab, fill = 0) %>%
+  write_csv('Results/Microbiology/Phylum/Tables/asvs_p_decontam_biofilm.tsv')
+```
+
+
+```{r plot-top-phylum}
+asvs_p_decontamed_biofilm %>%
+  inner_join(taxonomy_p_decontamed_biofilm, by = 'seqid') %>%
+  inner_join(samples_decontamed_biofilm, by = "sample")%>%
+  group_by(topphylum, sample, Your_sample_name, sampling_year,new_names, Incubation_time_yrs) %>% summarise(relab = sum(relab)) %>% ungroup() %>%
+    
+mutate(relab_adjusted = case_when(
+    
+    new_names == "Biofilm_SS" & Incubation_time_yrs == "1" ~ relab / 6,  
+    new_names == "Biofilm_SS" & Incubation_time_yrs == "2" ~ relab / 2,
+    new_names == "Biofilm_SS" & Incubation_time_yrs == "4" ~ relab / 3,
+    
+    new_names == "Biofilm_Tef" & Incubation_time_yrs == "1" ~ relab / 5,
+    new_names == "Biofilm_Tef" & Incubation_time_yrs == "2" ~ relab / 3,
+    new_names == "Biofilm_Tef" & Incubation_time_yrs == "4" ~ relab / 2
+    )) %>%
+  
+  ggplot(aes(
+    x = fct_relevel(new_names, !!!rev(new_names_relevel_biofilm)),
+    y = relab_adjusted, 
+    fill = fct_relevel(topphylum, "Other" , after = Inf))) +
+  geom_col() +
+    facet_grid(. ~ factor(Incubation_time_yrs, levels = c("0", "1", "2", "3", "4")), scales = "free_x", drop = TRUE) + #this line of code splits the figure by the year levels
+  scale_fill_manual(values = myColors) +
+  coord_flip() +
+  labs(title = "Top 20 Phylum-Allsamples")+
+  ylab("Relative Abundance")+
+  xlab("Your_sample_name")+
+  theme(
+   legend.position = 'bottom', legend.title = element_blank()) +
+  guides(fill = guide_legend(reverse = TRUE))
+    
+```
+
+
+```{r}
+ggsave("Results/Microbiology/Phylum/Figures/Clogging_magnus_StackedBar_Top_20_phylum_decontam_final_relevel_biofilm.pdf",scale = 2, width = 18, height = 13, units = "cm")
+```
+
+
+
+
+
+
+
+
+```{r, biofilm outlet small genomes relab stats}
+
+
+small_genomes_phylum_sample <- asvs_p_decontamed %>%
+  inner_join(taxonomy_p_decontamed, by = 'seqid') %>%
+    inner_join(samples_decontamed, by = "sample") %>%
+    filter(new_names %in% c("Biofilm_SS", "Biofilm_Tef" , "Outlet_SS", "Outlet_Tef")) %>%
+    filter(Incubation_time_yrs %in% c(1,4)) %>%
+  
+  mutate(grouped = case_when(
+    new_names %in% c("Biofilm_SS", "Biofilm_Tef") ~ "Biofilm",
+    new_names %in% c("Outlet_SS", "Outlet_Tef") ~ "Outlet")) %>% 
+  
+  group_by(Phylum, sample, grouped, Incubation_time_yrs) %>% 
+  summarise(relab = sum(relab)) %>%
+  
+    filter(Phylum %in% c("Huberarchaeota", "B1Sed10-29", "Aenigmatarchaeota" , "Undinarchaeota" , "Coprothermobacterota" , "Hadarchaeota" , "Patescibacteriota" , "Micrarchaeota" , "SpSt-1190" , "Caldisericota" , "Iainarchaeota" , "Hydrothermarchaeota" , "UBP18" , "Nanoarchaeota" , "Dependentiae" ))
+
+small_genomes_phylum_sample
+  
+  
+
+small_genomes_phylum_sample_relabs <- asvs_p_decontamed %>%
+  inner_join(taxonomy_p_decontamed, by = 'seqid') %>%
+    inner_join(samples_decontamed, by = "sample") %>%
+    filter(new_names %in% c("Biofilm_SS", "Biofilm_Tef" , "Outlet_SS", "Outlet_Tef")) %>%
+    filter(Incubation_time_yrs %in% c(1,4)) %>%
+   mutate(grouped = case_when(
+    new_names %in% c("Biofilm_SS", "Biofilm_Tef") ~ "Biofilm",
+    new_names %in% c("Outlet_SS", "Outlet_Tef") ~ "Outlet")) %>% 
+  group_by(Phylum, grouped, Incubation_time_yrs) %>% 
+   summarise(relab = sum(relab)) %>%
+    mutate(relab_adjusted = case_when(
+    grouped == "Biofilm" & Incubation_time_yrs == "1" ~ relab / 11,
+    grouped == "Biofilm" & Incubation_time_yrs == "4" ~ relab / 5,
+    
+    grouped == "Outlet" & Incubation_time_yrs == "1" ~ relab / 8,
+    grouped == "Outlet" & Incubation_time_yrs == "4" ~ relab / 2)) %>%
+  
+  filter(Phylum %in% c("Huberarchaeota", "B1Sed10-29", "Aenigmatarchaeota" , "Undinarchaeota" , "Coprothermobacterota" , "Hadarchaeota" , "Patescibacteriota" , "Micrarchaeota" , "SpSt-1190" , "Caldisericota" , "Iainarchaeota" , "Hydrothermarchaeota" , "UBP18" , "Nanoarchaeota" , "Dependentiae" )) %>%
+  dplyr::select(-c("relab"))
+
+
+small_genomes_phylum_sample_relabs
+
+capture.output(
+  print(small_genomes_phylum_sample_relabs, n = Inf),
+  file = "Results/Microbiology/Indicies/Alpha_tables/small_genomes_phylum_sample_relabs.txt")  
+
+
+
+
+
+
+wilcox_results_small_genomes_biofilm <- small_genomes_phylum_sample %>%
+  filter(grouped %in% c("Biofilm")) %>%
+  group_by(Phylum) %>%
+  filter(n_distinct(Incubation_time_yrs) == 2) %>%
+  summarise(
+    p_value = wilcox.test(relab ~ Incubation_time_yrs)$p.value,
+    .groups = "drop"
+  ) %>%
+  mutate(p_adj = p.adjust(p_value, method = "BH")) %>%
+  arrange(p_adj)
+
+
+wilcox_results_small_genomes_biofilm
+
+
+capture.output(
+  print(wilcox_results_small_genomes_biofilm, n = Inf),
+  file = "Results/Microbiology/Indicies/Alpha_tables/small_genomes_phyla_Wilcox-test_Biofilm_SSnTef.txt")
+
+wilcox_effects_small_genomes_biofilm <- small_genomes_phylum_sample %>%
+  filter(grouped %in% c("Biofilm")) %>%
+  group_by(Phylum) %>%
+  filter(n_distinct(Incubation_time_yrs) == 2) %>%
+  summarise(
+    Year_1 = median(relab[Incubation_time_yrs == 1]),
+    Year_4 = median(relab[Incubation_time_yrs == 4]),
+    effect = Year_4 - Year_1)
+
+wilcox_effects_small_genomes_biofilm
+
+capture.output(
+  print(wilcox_effects_small_genomes_biofilm, n= Inf),
+  file = "Results/Microbiology/Indicies/Alpha_tables/small_genomes_phyla_Wilcox-effects_Biofilm_SSnTef.txt")
+
+
+
+
+wilcox_results_small_genomes_outlet <- small_genomes_phylum_sample %>%
+  filter(grouped %in% c("Outlet")) %>%
+  group_by(Phylum) %>%
+  filter(n_distinct(Incubation_time_yrs) == 2) %>%
+  summarise(
+    p_value = wilcox.test(relab ~ Incubation_time_yrs)$p.value,
+    .groups = "drop"
+  ) %>%
+  mutate(p_adj = p.adjust(p_value, method = "BH")) %>%
+  arrange(p_adj)
+
+
+wilcox_results_small_genomes_outlet
+
+
+capture.output(
+  print(wilcox_results_small_genomes_outlet, n = Inf),
+  file = "Results/Microbiology/Indicies/Alpha_tables/small_genomes_phyla_Wilcox-test_Outlet_SSnTef.txt")
+
+wilcox_effects_small_genomes_outlet <- small_genomes_phylum_sample %>%
+  filter(grouped %in% c("Outlet")) %>%
+  group_by(Phylum) %>%
+  filter(n_distinct(Incubation_time_yrs) == 2) %>%
+  summarise(
+    Year_1 = median(relab[Incubation_time_yrs == 1]),
+    Year_4 = median(relab[Incubation_time_yrs == 4]),
+    effect = Year_4 - Year_1)
+
+wilcox_effects_small_genomes_outlet
+
+capture.output(
+  print(wilcox_effects_small_genomes_outlet, n= Inf),
+  file = "Results/Microbiology/Indicies/Alpha_tables/small_genomes_phyla_Wilcox-effects_Outlet_SSnTef.txt")
+
+
+```
+
+
+
+```{r}
+### small genomes all together
+
+
+small_genomes_phylum_sample <- asvs_p_decontamed %>%
+  inner_join(taxonomy_p_decontamed, by = 'seqid') %>%
+    inner_join(samples_decontamed, by = "sample") %>%
+    filter(new_names %in% c("Biofilm_SS", "Biofilm_Tef" , "Outlet_SS", "Outlet_Tef")) %>%
+    filter(Incubation_time_yrs %in% c(1,4)) %>%
+  
+  mutate(grouped = case_when(
+    new_names %in% c("Biofilm_SS", "Biofilm_Tef") ~ "Biofilm",
+    new_names %in% c("Outlet_SS", "Outlet_Tef") ~ "Outlet")) %>% 
+  
+  group_by(Phylum, sample, grouped, Incubation_time_yrs) %>% 
+  
+  summarise(relab = sum(relab)) %>%
+  
+    filter(Phylum %in% c("Huberarchaeota", "B1Sed10-29", "Aenigmatarchaeota" , "Undinarchaeota" , "Coprothermobacterota" , "Hadarchaeota" , "Patescibacteriota" , "Micrarchaeota" , "SpSt-1190" , "Caldisericota" , "Iainarchaeota" , "Hydrothermarchaeota" , "UBP18" , "Nanoarchaeota" , "Dependentiae" ))
+
+small_genomes_phylum_sample
+
+
+
+
+small_genomes_phylum_sample_relabs_grouped <- asvs_p_decontamed %>%
+  inner_join(taxonomy_p_decontamed, by = 'seqid') %>%
+    inner_join(samples_decontamed, by = "sample") %>%
+    filter(new_names %in% c("Biofilm_SS", "Biofilm_Tef" , "Outlet_SS", "Outlet_Tef")) %>%
+    filter(Incubation_time_yrs %in% c(1,4)) %>%
+   mutate(grouped = case_when(
+    new_names %in% c("Biofilm_SS", "Biofilm_Tef") ~ "Biofilm",
+    new_names %in% c("Outlet_SS", "Outlet_Tef") ~ "Outlet")) %>% 
+  group_by(Phylum, grouped, Incubation_time_yrs) %>% 
+   summarise(relab = sum(relab)) %>%
+    mutate(relab_adjusted = case_when(
+    grouped == "Biofilm" & Incubation_time_yrs == "1" ~ relab / 11,
+    grouped == "Biofilm" & Incubation_time_yrs == "4" ~ relab / 5,
+    
+    grouped == "Outlet" & Incubation_time_yrs == "1" ~ relab / 8,
+    grouped == "Outlet" & Incubation_time_yrs == "4" ~ relab / 2)) %>%
+  
+  filter(Phylum %in% c("Huberarchaeota", "B1Sed10-29", "Aenigmatarchaeota" , "Undinarchaeota" , "Coprothermobacterota" , "Hadarchaeota" , "Patescibacteriota" , "Micrarchaeota" , "SpSt-1190" , "Caldisericota" , "Iainarchaeota" , "Hydrothermarchaeota" , "UBP18" , "Nanoarchaeota" , "Dependentiae" )) %>%
+  group_by(grouped, Incubation_time_yrs) %>%
+  summarise(`relab_adjusted_%` = sum(relab_adjusted)*100)
+
+
+small_genomes_phylum_sample_relabs_grouped
+
+capture.output(
+  print(small_genomes_phylum_sample_relabs, n = Inf),
+  file = "Results/Microbiology/Indicies/Alpha_tables/small_genomes_phylum_sample_relabs_grouped.txt")  
+
+
+
+
+
+
+
+wilcox_results_small_genomes_biofilm_grouped <- small_genomes_phylum_sample %>%
+  filter(grouped %in% c("Biofilm")) %>%
+  group_by(grouped) %>%
+  filter(n_distinct(Incubation_time_yrs) == 2) %>%
+  summarise(
+    p_value = wilcox.test(relab ~ Incubation_time_yrs)$p.value,
+    .groups = "drop"
+  ) %>%
+  mutate(p_adj = p.adjust(p_value, method = "BH")) %>%
+  arrange(p_adj)
+
+
+wilcox_results_small_genomes_biofilm_grouped
+
+capture.output(
+  print(wilcox_results_small_genomes_biofilm, n = Inf),
+  file = "Results/Microbiology/Indicies/Alpha_tables/small_genomes_phyla_Wilcox-test_Biofilm_grouped.txt")
+
+
+
+wilcox_effects_small_genomes_biofilm <- small_genomes_phylum_sample %>%
+  filter(grouped %in% c("Biofilm")) %>%
+  group_by(grouped) %>%
+  filter(n_distinct(Incubation_time_yrs) == 2) %>%
+  summarise(
+    Year_1 = median(relab[Incubation_time_yrs == 1]),
+    Year_4 = median(relab[Incubation_time_yrs == 4]),
+    effect = Year_4 - Year_1)
+
+wilcox_effects_small_genomes_biofilm
+
+capture.output(
+  print(wilcox_effects_small_genomes_biofilm, n= Inf),
+  file = "Results/Microbiology/Indicies/Alpha_tables/small_genomes_phyla_Wilcox-effects_Biofilm_grouped.txt")
+
+
+
+small_genomes_wilcox_effects_biofilm_grouped <- left_join(
+      wilcox_results_small_genomes_biofilm_grouped,
+      wilcox_effects_small_genomes_biofilm) 
+
+print(small_genomes_wilcox_effects_biofilm_grouped)
+
+# Save outputs for inspection
+write_csv(small_genomes_wilcox_effects_biofilm_grouped , "Results/Microbiology/Indicies/Alpha_tables/small_genomes_wilcox_effects_biofilm_grouped.csv")
+
+
+
+
+
+wilcox_results_small_genomes_outlet_grouped <- small_genomes_phylum_sample %>%
+  filter(grouped %in% c("Outlet")) %>%
+  group_by(grouped) %>%
+  filter(n_distinct(Incubation_time_yrs) == 2) %>%
+  summarise(
+    p_value = wilcox.test(relab ~ Incubation_time_yrs)$p.value,
+    .groups = "drop"
+  ) %>%
+  mutate(p_adj = p.adjust(p_value, method = "BH")) %>%
+  arrange(p_adj)
+
+
+wilcox_results_small_genomes_outlet_grouped
+
+capture.output(
+  print(wilcox_results_small_genomes_outlet, n = Inf),
+  file = "Results/Microbiology/Indicies/Alpha_tables/small_genomes_phyla_Wilcox-test_Outlet_grouped.txt")
+
+
+
+wilcox_effects_small_genomes_outlet <- small_genomes_phylum_sample %>%
+  filter(grouped %in% c("Outlet")) %>%
+  group_by(grouped) %>%
+  filter(n_distinct(Incubation_time_yrs) == 2) %>%
+  summarise(
+    Year_1 = median(relab[Incubation_time_yrs == 1]),
+    Year_4 = median(relab[Incubation_time_yrs == 4]),
+    effect = Year_4 - Year_1)
+
+wilcox_effects_small_genomes_outlet
+
+capture.output(
+  print(wilcox_effects_small_genomes_outlet, n= Inf),
+  file = "Results/Microbiology/Indicies/Alpha_tables/small_genomes_phyla_Wilcox-effects_Outlet_grouped.txt")
+
+
+
+small_genomes_wilcox_effects_outlet_grouped <- left_join(
+      wilcox_results_small_genomes_outlet_grouped,
+      wilcox_effects_small_genomes_outlet) 
+
+print(small_genomes_wilcox_effects_outlet_grouped)
+
+# Save outputs for inspection
+write_csv(small_genomes_wilcox_effects_outlet_grouped , "Results/Microbiology/Indicies/Alpha_tables/small_genomes_wilcox_effects_outlet_grouped.csv")
+
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+```{r, creating table using the function, combining SS and Tef data for biofilm and outlet}
+final_table_combo_p <- asvs_p_decontamed %>%
+  inner_join(taxonomy_p_decontamed, by = 'seqid') %>%
+  inner_join(samples_decontamed, by = "sample")%>%
+    filter(new_names %in% c("Biofilm_SS", "Biofilm_Tef" , "Outlet_SS", "Outlet_Tef")) %>%
+    filter(Incubation_time_yrs %in% c(1,4)) %>%
+    
+  mutate(grouped = case_when(
+    new_names %in% c("Biofilm_SS", "Biofilm_Tef") ~ "Biofilm",
+    new_names %in% c("Outlet_SS", "Outlet_Tef") ~ "Outlet")) %>% 
+  group_by(topphylum, sample, grouped, sampling_year, Incubation_time_yrs) %>% 
+  summarise(relab = sum(relab), .groups = "drop")
+    
+  
+  
+##adjust the relabs based on the sample counts e.g. relab/4  
+final_table_combo_relabs_adjusted_p <- final_table_combo_p %>%
+    mutate(relab_adjusted = case_when(
+    grouped == "Biofilm" & Incubation_time_yrs == "1" ~ relab / 11,
+    grouped == "Biofilm" & Incubation_time_yrs == "4" ~ relab / 5,
+    
+    grouped == "Outlet" & Incubation_time_yrs == "1" ~ relab / 8,
+    grouped == "Outlet" & Incubation_time_yrs == "4" ~ relab / 2))
+
+
+
+
+
+
+Biofilm_1yr_relab_wide_p <- final_table_combo_p %>%
+  filter(grouped == "Biofilm" & Incubation_time_yrs == "1") %>%
+  dplyr::select(grouped, Incubation_time_yrs, sample, topphylum, relab) %>%  # Keep topphylum and relab per sample
+  pivot_wider(names_from = topphylum, values_from = relab, values_fill = 0) %>% # Pivot longer so each row = sample × phylum
+  rowwise() %>% # Normalize each sample so relabs sum to 1
+  mutate(across(-c(grouped, Incubation_time_yrs, sample), ~ .x *100/ sum(c_across(-c(grouped, Incubation_time_yrs,   sample))))) %>%
+  ungroup() %>%
+  group_by(grouped, Incubation_time_yrs) %>%
+  # Compute mean and SD separately
+  summarise(across(-sample, list(mean = mean, sd = sd))) %>%
+  # Pivot longer to create stat rows
+  pivot_longer(cols = -c(grouped, Incubation_time_yrs),
+               names_to = c("phylum", "stat"),
+               names_pattern = "(.+?)_(mean|sd)$",
+               values_to = "value") %>%
+  pivot_wider(names_from = phylum, values_from = value) %>%
+  relocate(Other, .after = stat)
+
+
+
+Biofilm_4yr_relab_wide_p <- final_table_combo_p %>%
+  filter(grouped == "Biofilm" & Incubation_time_yrs == "4") %>%
+  dplyr::select(grouped, Incubation_time_yrs, sample, topphylum, relab) %>%  # Keep topphylum and relab per sample
+  pivot_wider(names_from = topphylum, values_from = relab, values_fill = 0) %>% # Pivot longer so each row = sample × phylum
+  rowwise() %>% # Normalize each sample so relabs sum to 1
+  mutate(across(-c(grouped, Incubation_time_yrs, sample), ~ .x *100/ sum(c_across(-c(grouped, Incubation_time_yrs,   sample))))) %>%
+  ungroup() %>%
+  group_by(grouped, Incubation_time_yrs) %>%
+  # Compute mean and SD separately
+  summarise(across(-sample, list(mean = mean, sd = sd))) %>%
+  # Pivot longer to create stat rows
+  pivot_longer(cols = -c(grouped, Incubation_time_yrs),
+               names_to = c("phylum", "stat"),
+               names_pattern = "(.+?)_(mean|sd)$",
+               values_to = "value") %>%
+  pivot_wider(names_from = phylum, values_from = value) %>%
+  relocate(Other, .after = stat)
+
+
+
+Outlet_1yr_relab_wide_p <- final_table_combo_p %>%
+  filter(grouped == "Outlet" & Incubation_time_yrs == "1") %>%
+  dplyr::select(grouped, Incubation_time_yrs, sample, topphylum, relab) %>%  # Keep topphylum and relab per sample
+  pivot_wider(names_from = topphylum, values_from = relab, values_fill = 0) %>% # Pivot longer so each row = sample × phylum
+  rowwise() %>% # Normalize each sample so relabs sum to 1
+  mutate(across(-c(grouped, Incubation_time_yrs, sample), ~ .x *100/ sum(c_across(-c(grouped, Incubation_time_yrs,   sample))))) %>%
+  ungroup() %>%
+  group_by(grouped, Incubation_time_yrs) %>%
+  # Compute mean and SD separately
+  summarise(across(-sample, list(mean = mean, sd = sd))) %>%
+  # Pivot longer to create stat rows
+  pivot_longer(cols = -c(grouped, Incubation_time_yrs),
+               names_to = c("phylum", "stat"),
+               names_pattern = "(.+?)_(mean|sd)$",
+               values_to = "value") %>%
+  pivot_wider(names_from = phylum, values_from = value) %>%
+  relocate(Other, .after = stat)
+
+
+Outlet_4yr_relab_wide_p <- final_table_combo_p %>%
+  filter(grouped == "Outlet" & Incubation_time_yrs == "4") %>%
+  dplyr::select(grouped, Incubation_time_yrs, sample, topphylum, relab) %>%  # Keep topphylum and relab per sample
+  pivot_wider(names_from = topphylum, values_from = relab, values_fill = 0) %>% # Pivot longer so each row = sample × phylum
+  rowwise() %>% # Normalize each sample so relabs sum to 1
+  mutate(across(-c(grouped, Incubation_time_yrs, sample), ~ .x *100/ sum(c_across(-c(grouped, Incubation_time_yrs,   sample))))) %>%
+  ungroup() %>%
+  group_by(grouped, Incubation_time_yrs) %>%
+  # Compute mean and SD separately
+  summarise(across(-sample, list(mean = mean, sd = sd))) %>%
+  # Pivot longer to create stat rows
+  pivot_longer(cols = -c(grouped, Incubation_time_yrs),
+               names_to = c("phylum", "stat"),
+               names_pattern = "(.+?)_(mean|sd)$",
+               values_to = "value") %>%
+  pivot_wider(names_from = phylum, values_from = value) %>%
+  relocate(Other, .after = stat)
+
+```
+
+
+```{r}
+Total_phylum_merged_table_wide_sd_combo_p <- bind_rows(
+
+Biofilm_1yr_relab_wide_p,
+Biofilm_4yr_relab_wide_p,
+
+Outlet_1yr_relab_wide_p,
+Outlet_4yr_relab_wide_p
+) 
+
+print(Total_phylum_merged_table_wide_sd_combo_p)
+
+# Save outputs for inspection
+write_csv(Total_phylum_merged_table_wide_sd_combo_p , "Results/Microbiology/Indicies/Alpha_tables/grouped_incubation_1v4_phylum_Relab_percentages_decontam_Final_biofilm_&_Outlet_SDs_SS+Tef_combined.csv")
+
+```
+
+
+
+
+
+
+
+```{r, biofilm outlet top 20 relab wilxon and effect stats}
+
+
+topphylum_sample <- asvs_p_decontamed %>%
+  inner_join(taxonomy_p_decontamed, by = 'seqid') %>%
+    inner_join(samples_decontamed, by = "sample") %>%
+    filter(new_names %in% c("Biofilm_SS", "Biofilm_Tef" , "Outlet_SS", "Outlet_Tef")) %>%
+    filter(Incubation_time_yrs %in% c(1,4)) %>%
+  
+  mutate(grouped = case_when(
+    new_names %in% c("Biofilm_SS", "Biofilm_Tef") ~ "Biofilm",
+    new_names %in% c("Outlet_SS", "Outlet_Tef") ~ "Outlet")) %>% 
+  
+  group_by(topphylum, sample, grouped, Incubation_time_yrs) %>% 
+  summarise(relab = sum(relab)) 
+
+topphylum_sample
+  
+  
+
+topphylum_sample_relabs <- asvs_p_decontamed %>%
+  inner_join(taxonomy_p_decontamed, by = 'seqid') %>%
+    inner_join(samples_decontamed, by = "sample") %>%
+    filter(new_names %in% c("Biofilm_SS", "Biofilm_Tef" , "Outlet_SS", "Outlet_Tef")) %>%
+    filter(Incubation_time_yrs %in% c(1,4)) %>%
+   mutate(grouped = case_when(
+    new_names %in% c("Biofilm_SS", "Biofilm_Tef") ~ "Biofilm",
+    new_names %in% c("Outlet_SS", "Outlet_Tef") ~ "Outlet")) %>% 
+  group_by(topphylum, grouped, Incubation_time_yrs) %>% 
+   summarise(relab = sum(relab)) %>%
+    mutate(relab_adjusted = case_when(
+    grouped == "Biofilm" & Incubation_time_yrs == "1" ~ relab / 11,
+    grouped == "Biofilm" & Incubation_time_yrs == "4" ~ relab / 5,
+    
+    grouped == "Outlet" & Incubation_time_yrs == "1" ~ relab / 8,
+    grouped == "Outlet" & Incubation_time_yrs == "4" ~ relab / 2)) %>%
+  dplyr::select(-c("relab"))
+
+
+topphylum_sample_relabs
+
+capture.output(
+  print(topphylum_sample_relabs, n = Inf),
+  file = "Results/Microbiology/Indicies/Alpha_tables/topphylum_sample_relabs.txt")  
+
+
+
+
+
+
+wilcox_results_topphylum_biofilm <- topphylum_sample %>%
+  filter(grouped %in% c("Biofilm")) %>%
+  group_by(topphylum) %>%
+  filter(n_distinct(Incubation_time_yrs) == 2) %>%
+  summarise(
+    p_value = wilcox.test(relab ~ Incubation_time_yrs)$p.value,
+    .groups = "drop"
+  ) %>%
+  mutate(p_adj = p.adjust(p_value, method = "BH")) %>%
+  arrange(p_adj)
+
+
+wilcox_results_topphylum_biofilm
+
+
+capture.output(
+  print(wilcox_results_topphylum_biofilm, n = Inf),
+  file = "Results/Microbiology/Indicies/Alpha_tables/topphylum_Wilcox-test_Biofilm_SSnTef.txt")
+
+wilcox_effects_topphylum_biofilm <- topphylum_sample %>%
+  filter(grouped %in% c("Biofilm")) %>%
+  group_by(topphylum) %>%
+  filter(n_distinct(Incubation_time_yrs) == 2) %>%
+  summarise(
+    Year_1 = median(relab[Incubation_time_yrs == 1]),
+    Year_4 = median(relab[Incubation_time_yrs == 4]),
+    effect = Year_4 - Year_1)
+
+wilcox_effects_topphylum_biofilm
+
+capture.output(
+  print(wilcox_effects_topphylum_biofilm, n= Inf),
+  file = "Results/Microbiology/Indicies/Alpha_tables/topphylum_Wilcox-effects_Biofilm_SSnTef.txt")
+
+
+
+
+wilcox_results_topphylum_outlet <- topphylum_sample %>%
+  filter(grouped %in% c("Outlet")) %>%
+  group_by(topphylum) %>%
+  filter(n_distinct(Incubation_time_yrs) == 2) %>%
+  summarise(
+    p_value = wilcox.test(relab ~ Incubation_time_yrs)$p.value,
+    .groups = "drop"
+  ) %>%
+  mutate(p_adj = p.adjust(p_value, method = "BH")) %>%
+  arrange(p_adj)
+
+
+wilcox_results_topphylum_outlet
+
+
+capture.output(
+  print(wilcox_results_topphylum_outlet, n = Inf),
+  file = "Results/Microbiology/Indicies/Alpha_tables/topphylum_Wilcox-test_Outlet_SSnTef.txt")
+
+wilcox_effects_topphylum_outlet <- topphylum_sample %>%
+  filter(grouped %in% c("Outlet")) %>%
+  group_by(topphylum) %>%
+  filter(n_distinct(Incubation_time_yrs) == 2) %>%
+  summarise(
+    Year_1 = median(relab[Incubation_time_yrs == 1]),
+    Year_4 = median(relab[Incubation_time_yrs == 4]),
+    effect = Year_4 - Year_1)
+
+wilcox_effects_topphylum_outlet
+
+capture.output(
+  print(wilcox_effects_topphylum_outlet, n= Inf),
+  file = "Results/Microbiology/Indicies/Alpha_tables/topphylum_Wilcox-effects_Outlet_SSnTef.txt")
+```
+
+
+
 
 
 
@@ -4367,7 +5272,7 @@ ggsave("Results/Microbiology/Genus/Figures/Clogging_magnus_StackedBar_Top_20_gen
 #######
 ########
 
-
+#
 
 
 
@@ -4408,6 +5313,7 @@ feature_table_bacteria <- feature_table_bacteria %>%
 
 T_otu_mat <- feature_table_bacteria %>% tibble::column_to_rownames("seqid") %>% as.matrix() %>% t()
 
+#T_otu_mat <- T_otu_mat[rowSums(T_otu_mat) > 500, ]
 
 tax_mat <- taxonomy_raw %>% tibble::column_to_rownames("seqid") %>% as.matrix()
 
@@ -4439,7 +5345,9 @@ alpha<-data.frame(sample= row.names(alpha), alpha)
 
 head(alpha)
 
-repl_clogging.mdf <- T_otu_mat
+#repl_clogging.mdf <- decostand(T_otu_mat, method = "total")
+
+repl_clogging.mdf <- decostand(T_otu_mat, method = "hellinger")
 
 clogging.bray <- vegdist(repl_clogging.mdf, method = "bray")
 
@@ -4484,22 +5392,28 @@ Pca_legend_order <- sample_names_relevel
 pcoa.clogging.bray.plotting <- pcoa.clogging.bray.plotting %>%
   mutate(sequencing_ID = fct_relevel(Your_sample_name, !!!rev(Pca_legend_order)))
 
+pcoa.clogging.bray.plotting$Incubation_time_yrs <- 
+  as.numeric(as.character(pcoa.clogging.bray.plotting$Incubation_time_yrs))
+
 # create a PCoA plot
 pcoa.clogging.bray.plot <- ggplot(pcoa.clogging.bray.plotting, aes(x = axis_1, y = axis_2)) +
-  geom_point(aes(color = new_names, shape = Incubation_time_yrs), size= 3) +
+  geom_point(aes(color = Incubation_time_yrs, shape = new_names), size= 3) +
   #geom_text_repel(aes(label = Your_sample_name, element_text = 5),
    #               max.overlaps = Inf,
     #              min.segment.length = 0,
      #             box.padding   = 0.35,
       #            point.padding = 0.5,
        #           segment.color = 'grey50') +
-   scale_color_manual(values = myColors) +
+  scale_color_gradient(
+  low = "lightblue",
+  high = "navyblue",
+  name = "Incubation (yrs)") +
   theme_bw() + 
   theme(plot.title =element_text(size= 5),
         axis.text = element_text(size= 5),)+
-    labs(title = "Beta Diversity")+
-    xlab("PCA 1 (19.8%)") +
-    ylab("PCA 2 (9.2%)") +
+    labs(title = "Beta Diversity, Hellinger transformed")+
+    xlab("PCA 1 (23.2%)") +
+    ylab("PCA 2 (10.3%)") +
     annotate(geom = 'text', label = 'Bray-Curtis', x = -.35, y = .45, hjust = .8, vjust = -1)
 
 plot(pcoa.clogging.bray.plot)
@@ -4508,7 +5422,7 @@ plot(pcoa.clogging.bray.plot)
 
 
 ```{r}
-ggsave("Results/Microbiology/Indicies/BetaDiversity_nmds_no_normalization_incubation_years_decontam_stage_0.pdf", scale = 2, width = 10 , height =10, units = "cm")
+ggsave("Results/Microbiology/Indicies/BetaDiversity_nmds_hellinger_transformed_incubation_years_decontamed.pdf", scale = 2, width = 10 , height =10, units = "cm")
 ```
 
 
@@ -4654,11 +5568,13 @@ alpha<-data.frame(sample= row.names(alpha), alpha)
 
 head(alpha)
 
-repl_clogging.mdf <- T_otu_mat
+repl_clogging.mdf <- decostand(T_otu_mat, method = "hellinger")
 
 clogging.bray <- vegdist(repl_clogging.mdf, method = "bray")
 
 clogging.bray
+
+clogging.bray.mat <-as.matrix(clogging.bray)
 
 clogging.jac <- vegdist(repl_clogging.mdf, method = "jaccard" , binary = T)
 
@@ -4695,11 +5611,11 @@ Pca_legend_order <- sample_names_relevel
 ```{r}
 # Reorder the common_name factor based on the desired order
 pcoa.clogging.bray.plotting <- pcoa.clogging.bray.plotting %>%
-  mutate(sequencing_ID = fct_relevel(Your_sample_name, !!!rev(Pca_legend_order)))
+  mutate(sequencing_ID = fct_relevel(new_names, !!!rev(Pca_legend_order)))
 
 # create a PCoA plot
 pcoa.clogging.bray.plot <- ggplot(pcoa.clogging.bray.plotting, aes(x = axis_1, y = axis_2)) +
-  geom_point(aes(color = sampling_year, shape = sample_source), size= 3) +
+  geom_point(aes(color = new_names, shape = Incubation_time_yrs), size= 3) +
   #geom_text_repel(aes(label = N_to_S_Site_names, element_text = 5),
    #               max.overlaps = Inf,
     #              min.segment.length = 0,
@@ -4711,8 +5627,8 @@ pcoa.clogging.bray.plot <- ggplot(pcoa.clogging.bray.plotting, aes(x = axis_1, y
   theme(plot.title =element_text(size= 5),
         axis.text = element_text(size= 5),)+
     labs(title = "Beta Diversity")+
-    xlab("PCA 1 (19.8%)") +
-    ylab("PCA 2 (9.2%)") +
+    xlab("PCA 1 (23.2%)") +
+    ylab("PCA 2 (10.3%)") +
     annotate(geom = 'text', label = 'Bray-Curtis', x = -.35, y = .45, hjust = .8, vjust = -1)
 
 plot(pcoa.clogging.bray.plot)
@@ -4722,17 +5638,165 @@ plot(pcoa.clogging.bray.plot)
 ggsave("Results/Microbiology/Indicies/BetaDiversity_nmds_no_normalization_decontam_stage_0.pdf" , width = 28 , height = 15, units = "cm")
 ```
 
+```{r, permanova}
 
+samples_nmds_perm <- metadata %>% 
+  dplyr::filter(!sample %in% c("P37057_1005",
+                                "P37057_1017", 
+                                "P37057_1020",
+                                "P37057_1040",
+                                "P37057_1043",
+                                "P37057_1053",
+                                "P37057_1058",
+                                "P37057_1069")) %>% 
+                  tibble::column_to_rownames("sample")
+
+# ensure order matches
+samples_nmds_perm <- samples_nmds_perm[rownames(repl_clogging.mdf), ]
+
+
+#check sample parameters
+table(samples_nmds_perm$Incubation_time_yrs)
+table(samples_nmds_perm$new_names)
+table(samples_nmds_perm$group)
+
+#check dispersion
+dispersion <- betadisper(clogging.bray, samples_nmds_perm$new_names)
+anova(dispersion)
+
+
+
+
+# PERMANOVA (valid)
+permanova_bray <- adonis2(
+  clogging.bray ~ Incubation_time_yrs + new_names,
+  data = samples_nmds_perm,
+  permutations = 9999)
+
+permanova_bray
+
+capture.output(
+  print(permanova_bray)
+  , file = "Results/Microbiology/Indicies/Alpha_tables/permanova_bray.txt")
+
+
+# PERMANOVA pairwise (with caveats due to singlets may not be entirely reliable, may get idential p values, artifical extreme results, and unstable F stats)
+
+table(samples_nmds_perm$group)
+
+permanova_bray_pairwise_names <- pairwise.perm.manova(
+  clogging.bray,
+  samples_nmds_perm$new_names,
+  nperm = 9999
+)
+
+permanova_bray_pairwise_names
+
+capture.output(
+  print(permanova_bray_pairwise_names)
+  , file = "Results/Microbiology/Indicies/Alpha_tables/permanova_bray_pairwise.txt")
+
+
+permanova_bray_pairwise_Inc_time_yrs <- pairwise.perm.manova(
+  clogging.bray,
+  samples_nmds_perm$Incubation_time_yrs,
+  nperm = 9999
+)
+
+permanova_bray_pairwise_Inc_time_yrs
+
+capture.output(
+  print(permanova_bray_pairwise_Inc_time_yrs)
+  , file = "Results/Microbiology/Indicies/Alpha_tables/permanova_bray_pairwise_Inc_time_yrs.txt")
+
+
+permanova_bray_pairwise_interaction <- pairwise.perm.manova(
+  clogging.bray,
+  interaction(samples_nmds_perm$new_names, samples_nmds_perm$Incubation_time_yrs),
+  nperm = 9999
+)
+
+permanova_bray_pairwise_interaction
+
+capture.output(
+  print(permanova_bray_pairwise_new_names)
+  , file = "Results/Microbiology/Indicies/Alpha_tables/permanova_bray_pairwise_new_names.txt")
+
+```
+
+
+```{r}
+#biofilm only
+
+biofilm_meta <- samples_nmds_perm %>%
+  dplyr::filter(
+    new_names %in% c("Biofilm_SS", "Biofilm_Tef"),
+    Incubation_time_yrs %in% c(1, 4))
+
+
+biofilm_meta$biofilm_group <- "Biofilm"
+
+
+
+table(biofilm_meta$Incubation_time_yrs)
+
+
+
+biofilm_samples <- rownames(biofilm_meta)
+
+biofilm_dist <- as.dist(
+  as.matrix(clogging.bray)[biofilm_samples, biofilm_samples])
+
+
+dispersion <- betadisper(biofilm_dist, biofilm_meta$Incubation_time_yrs)
+aov_dispersion <-anova(dispersion)
+aov_dispersion
+
+capture.output(
+  print(aov_dispersion)
+  , file = "Results/Microbiology/Indicies/Alpha_tables/biofilm_anova_dispersion.txt")
+
+biofilm_permanova <- adonis2(
+  biofilm_dist ~ Incubation_time_yrs,
+  data = biofilm_meta,
+  permutations = 9999
+)
+
+biofilm_permanova
+
+capture.output(
+  print(biofilm_permanova)
+  , file = "Results/Microbiology/Indicies/Alpha_tables/biofilm_permanova.txt")
+
+
+pairwise_biofilm <- pairwise.perm.manova(
+  biofilm_dist,
+  biofilm_meta$Incubation_time_yrs,
+  nperm = 9999
+)
+
+pairwise_biofilm
+
+capture.output(
+  print(pairwise_biofilm)
+  , file = "Results/Microbiology/Indicies/Alpha_tables/pairwise_biofilm.txt")
+```
+
+
+
+```{r}
+sample_source_order <- c("borehole", "container", "macadam")
+```
 
 ```{r}
 # Reorder `common_name` in the `alpha` dataset
 alpha <- alpha %>%
-    mutate(sequencing_ID = fct_relevel(Your_sample_name, !!!rev(Pca_legend_order)))
+    mutate(sequencing_ID = fct_relevel(new_names, !!!rev(new_names_relevel)))
 
 plot.shan <- ggplot(alpha, aes(
-  x = fct_relevel(Your_sample_name, !!!rev(Pca_legend_order)), 
+  x = fct_relevel(new_names, !!!rev(new_names_relevel)), 
   y = as.numeric(shannon), 
-  color = sampling_year)) +
+  color = Incubation_time_yrs)) +
   geom_boxplot() +
   #geom_point(size = 1.5) +
   scale_color_manual(values = myColors) +
@@ -4745,9 +5809,9 @@ plot.shan <- ggplot(alpha, aes(
         axis.text.x = element_text(angle = 90, hjust = .5, vjust = 1))
 
 plot.rich <-ggplot(alpha, aes(
-  x = fct_relevel(Your_sample_name, !!!rev(Pca_legend_order)), 
+  x = fct_relevel(new_names, !!!rev(new_names_relevel)), 
   y = as.numeric(richness), 
-  color = sampling_year)) +
+  color = Incubation_time_yrs)) +
   geom_boxplot() +
   #geom_point(size = 1.5) +
   scale_color_manual(values = myColors) +
@@ -4760,9 +5824,9 @@ plot.rich <-ggplot(alpha, aes(
         axis.text.x = element_text(angle = 90, hjust = .5, vjust = 1))
 
 plot.even <- ggplot(alpha, aes(
-  x = fct_relevel(Your_sample_name, !!!rev(Pca_legend_order)), 
+  x = fct_relevel(new_names, !!!rev(new_names_relevel)), 
   y = as.numeric(pielou), 
-  color = sampling_year)) +
+  color = Incubation_time_yrs)) +
   geom_boxplot() +
   #geom_point(size = 1.5) +
   scale_color_manual(values = myColors) +
@@ -4779,7 +5843,7 @@ ggarrange (plot.shan ,
              plot.rich , 
              plot.even , 
            common.legend = TRUE,
-           legend = FALSE,
+           legend = TRUE,
            nrow= 1)
 
 
@@ -4787,16 +5851,16 @@ ggarrange (plot.shan ,
 ```
 
 ```{r}
-ggsave("Results/Microbiology/Indicies/Clogging_diversity_plots_bacteria_decontam_stage_0.pdf" , width = 35 , height = 20, units = "cm")
+ggsave("Results/Microbiology/Indicies/Clogging_diversity_plots_bacteria_decontam_stage_0.pdf" , scale = 1.5, width = 18 , height = 13, units = "cm")
 ```
 
 
 
 ```{r diversity statistics, all sampling and treatment}
 
-shannon_anova <- aov(shannon ~ Your_sample_name * sampling_year , data = alpha)
-richness_anova <- aov( richness ~  Your_sample_name * sampling_year  , data = alpha)
-pielou_anova <- aov(pielou ~ Your_sample_name * sampling_year  , data = alpha)
+shannon_anova <- aov(shannon ~ Incubation_time_yrs * new_names , data = alpha)
+richness_anova <- aov( richness ~  Incubation_time_yrs * new_names  , data = alpha)
+pielou_anova <- aov(pielou ~ Incubation_time_yrs * new_names  , data = alpha)
 
 shannon_tukey <- shannon_anova %>% TukeyHSD()
 richness_tukey <- richness_anova %>% TukeyHSD()
@@ -4832,6 +5896,7 @@ capture.output({
   print(pielou_tukey)
 }, file = "Results/Microbiology/Indicies/Alpha_tables/pielou_anova_tukey_summary.txt")
 ```
+
 
 
 
@@ -5094,16 +6159,16 @@ ggsave("Results/Microbiology/Picrust_decontamed/Figures/Clogging_Picrust_deconta
 
 
 ```{r}
-Gene_ID_names_relevel_fig_subset <- Gene_ID_names_relevel[!Gene_ID_names_relevel %in% c("doxA" , "doxDA", "tetH" , "napA" , "napB" , "dsrK" , "asrA" , "asrB" , "asrC" , "ttrA" , "ttrC" , "phsB" , "phsC" , "mcr" , "korB" , "fchA")] 
+Gene_ID_names_relevel_fig_subset_noCF <- Gene_ID_names_relevel[!Gene_ID_names_relevel %in% c("doxA" , "doxDA", "tetH" ,"mdh1, mxaF" ,"mdh2, mxaI", "mmoB", "mmoC", "mmoD", "mmoX", "mmoY", "mmoZ", "pmoAamoA", "pmoBamoB", "pmoCamoC", "napA" , "napB" , "dsrK" , "asrA" , "asrB" , "asrC" , "ttrA" , "ttrC" , "phsB" , "phsC" , "arrA", "arrB", "serA", "serB", "serC","hdrA1", "hdrA2", "hdrB1", "hdrB2", "hdrC1", "hdrC2", "mcrA", "mcrB", "mcrG", "ftr", "fwdA, fmdA", "fwdB, fmdB", "fwdC, fmdC", "fwdD, fmdD", "fwdE, fmdE", "fwdF, fmdF", "fwdG", "fwdH", "hmd", "mch", "mer", "mtd", "mtrA", "mtrB", "mtrC", "mtrD", "mtrE", "mtrF", "mtrG", "mtrH", "mtaA", "mtaB", "mtbA", "mtbB", "mtmB", "mttB", "mtgB", "mcr", "aclA", "aclB", "ccsA", "ccsB", "korB" , "fchA")] 
 ```
 
 
 ```{r}
 
-balloon_plot_data_fig_subset <- balloon_plot_data %>%
-  dplyr::filter(!(`Gene ID` %in% c("doxA" , "doxDA", "tetH" , "napA" , "napB" , "dsrK" , "asrA" , "asrB" , "asrC" , "ttrA" , "ttrC" , "phsB" , "phsC" , "mcr" , "korB" , "fchA")))
+balloon_plot_data_fig_subset_noCF <- balloon_plot_data %>%
+  dplyr::filter(!(`Gene ID` %in% c("doxA" , "doxDA", "tetH" ,"mdh1, mxaF" ,"mdh2, mxaI", "mmoB", "mmoC", "mmoD", "mmoX", "mmoY", "mmoZ", "pmoAamoA", "pmoBamoB", "pmoCamoC", "napA" , "napB" , "dsrK" , "asrA" , "asrB" , "asrC" , "ttrA" , "ttrC" , "phsB" , "phsC" , "arrA", "arrB", "serA", "serB", "serC", "hdrA1", "hdrA2", "hdrB1", "hdrB2", "hdrC1", "hdrC2", "mcrA", "mcrB", "mcrG", "ftr", "fwdA, fmdA", "fwdB, fmdB", "fwdC, fmdC", "fwdD, fmdD", "fwdE, fmdE", "fwdF, fmdF", "fwdG", "fwdH", "hmd", "mch", "mer", "mtd", "mtrA", "mtrB", "mtrC", "mtrD", "mtrE", "mtrF", "mtrG", "mtrH", "mtaA", "mtaB", "mtbA", "mtbB", "mtmB", "mttB", "mtgB", "mcr" ,"aclA", "aclB", "ccsA", "ccsB", "korB" , "fchA" )))
 
-ggplot(balloon_plot_data_fig_subset, 
+ggplot(balloon_plot_data_fig_subset_noCF, 
        aes(x = Incubation_time_yrs, 
            y = fct_relevel(`Gene ID`, !!!rev(Gene_ID_names_relevel_fig_subset)),
            size = ifelse(relab_adjusted > 0, relab_adjusted, NA),
@@ -5137,89 +6202,12 @@ ggplot(balloon_plot_data_fig_subset,
 
 
 ```{r}
-ggsave("Results/Microbiology/Picrust_decontamed/Figures/Clogging_Picrust_decontamed_GeneID_pathCategory_subset.pdf" ,scale = 1.5, width = 15 , height = 50, units = "cm")
+ggsave("Results/Microbiology/Picrust_decontamed/Figures/Clogging_Picrust_decontamed_GeneID_pathCategory_subset_FINAL.pdf" ,scale = 1.5, width = 15 , height = 50, units = "cm")
 ```
 
 
 
 
-```{r}
-sessionInfo()
-```
-
-R version 4.5.2 (2025-10-31 ucrt)
-Platform: x86_64-w64-mingw32/x64
-Running under: Windows 11 x64 (build 26100)
-
-Matrix products: default
-  LAPACK version 3.12.1
-
-locale:
-[1] LC_COLLATE=English_United States.utf8  LC_CTYPE=English_United States.utf8    LC_MONETARY=English_United States.utf8
-[4] LC_NUMERIC=C                           LC_TIME=English_United States.utf8    
-
-time zone: Europe/Stockholm
-tzcode source: internal
-
-attached base packages:
- [1] grid      stats4    tcltk     stats     graphics  grDevices utils     datasets  methods   base     
-
-other attached packages:
- [1] ANCOMBC_2.12.0              ggtext_0.1.2                Biostrings_2.78.0           XVector_0.50.0             
- [5] seqinr_4.2-36               ape_5.8-1                   compositions_2.0-9          devtools_2.4.6             
- [9] usethis_3.2.1               decontam_1.30.0             dbplyr_2.5.1                pscl_1.5.9                 
-[13] VennDiagram_1.7.3           futile.logger_1.4.3         cowplot_1.2.0               scran_1.38.0               
-[17] scuttle_1.20.0              apeglm_1.32.0               DESeq2_1.50.2               zinbwave_1.32.0            
-[21] SingleCellExperiment_1.32.0 SummarizedExperiment_1.40.0 Biobase_2.70.0              GenomicRanges_1.62.0       
-[25] Seqinfo_1.0.0               IRanges_2.44.0              S4Vectors_0.48.0            BiocGenerics_0.56.0        
-[29] generics_0.1.4              MatrixGenerics_1.22.0       matrixStats_1.5.0           agricolae_1.3-7            
-[33] ggpubr_0.6.2                lubridate_1.9.4             forcats_1.0.1               stringr_1.6.0              
-[37] purrr_1.2.0                 tibble_3.3.0                tidyverse_2.0.0             gridExtra_2.3              
-[41] vegan_2.7-2                 permute_0.9-8               asbio_1.12-1                phyloseq_1.54.0            
-[45] ggrepel_0.9.6               CoDaSeq_0.99.7              car_3.1-3                   carData_3.0-5              
-[49] ALDEx2_1.42.0               latticeExtra_0.6-31         lattice_0.22-7              zCompositions_1.5.0-5      
-[53] survival_3.8-3              truncnorm_1.0-9             MASS_7.3-65                 knitr_1.50                 
-[57] kfigr_1.2.1                 ggplot2_4.0.1               tidyr_1.3.1                 dplyr_1.1.4                
-[61] readr_2.1.6                
-
-loaded via a namespace (and not attached):
-  [1] vroom_1.6.6            gld_2.6.8              nnet_7.3-20            TH.data_1.1-5          vctrs_0.6.5           
-  [6] energy_1.7-12          digest_0.6.39          png_0.1-8              proxy_0.4-28           Exact_3.3             
- [11] deldir_2.0-4           reshape2_1.4.5         gWidgets2tcltk_1.0-9   foreach_1.5.2          withr_3.0.2           
- [16] xfun_0.54              doRNG_1.8.6.2          ellipsis_0.3.2         memoise_2.0.1          commonmark_2.0.0      
- [21] gmp_0.7-5              systemfonts_1.3.1      zoo_1.8-15             gtools_3.9.5           ragg_1.5.0            
- [26] DEoptimR_1.1-4         Formula_1.2-5          KEGGREST_1.50.0        scatterplot3d_0.3-44   httr_1.4.7            
- [31] rstatix_0.7.3          rhdf5filters_1.22.0    rhdf5_2.54.0           rstudioapi_0.17.1      base64enc_0.1-3       
- [36] ScaledMatrix_1.18.0    quadprog_1.5-8         SparseArray_1.10.2     AlgDesign_1.2.1.2      doParallel_1.0.17     
- [41] xtable_1.8-4           ade4_1.7-23            evaluate_1.0.5         S4Arrays_1.10.0        Rfast_2.1.5.2         
- [46] hms_1.1.4              irlba_2.3.5.1          colorspace_2.1-2       readxl_1.4.5           magrittr_2.0.4        
- [51] viridis_0.6.5          genefilter_1.92.0      robustbase_0.99-6      XML_3.99-0.20          class_7.3-23          
- [56] gWidgets2_1.0-10       Hmisc_5.2-4            pillar_1.11.1          nlme_3.1-168           iterators_1.0.14      
- [61] gridBase_0.4-7         compiler_4.5.2         beachmat_2.26.0        stringi_1.8.7          biomformat_1.38.0     
- [66] DescTools_0.99.60      minqa_1.2.8            plyr_1.8.9             pixmap_0.4-14          crayon_1.5.3          
- [71] abind_1.4-8            emdbook_1.3.14         locfit_1.5-9.12        haven_2.5.5            bit_4.6.0             
- [76] sandwich_3.1-1         rootSolve_1.8.2.4      multcomp_1.4-29        codetools_0.2-20       textshaping_1.0.4     
- [81] directlabels_2025.6.24 BiocSingular_1.26.1    e1071_1.7-16           lmom_3.2               multtest_2.66.0       
- [86] splines_4.5.2          markdown_2.0           Rcpp_1.1.0             cellranger_1.1.0       interp_1.1-6          
- [91] gridtext_0.1.5         blob_1.2.4             utf8_1.2.6             lme4_1.1-38            fs_1.6.6              
- [96] checkmate_2.3.3        Rdpack_2.6.4           pkgbuild_1.4.8         expm_1.0-0             gsl_2.1-9             
-[101] ggsignif_0.6.4         Matrix_1.7-4           statmod_1.5.1          tzdb_0.5.0             pkgconfig_2.0.3       
-[106] tools_4.5.2            cachem_1.1.0           rbibutils_2.4          RSQLite_2.4.4          viridisLite_0.4.2     
-[111] DBI_1.2.3              numDeriv_2016.8-1.1    zigg_0.0.2             fastmap_1.2.0          rmarkdown_2.30        
-[116] scales_1.4.0           broom_1.0.11           coda_0.19-4.1          BiocManager_1.30.27    rpart_4.1.24          
-[121] reformulas_0.4.2       farver_2.1.2           mgcv_1.9-4             yaml_2.3.10            deSolve_1.40          
-[126] foreign_0.8-90         bayesm_3.1-7           cli_3.6.5              lifecycle_1.0.4        mvtnorm_1.3-3         
-[131] lambda.r_1.2.4         bluster_1.20.0         sessioninfo_1.2.3      backports_1.5.0        BiocParallel_1.44.0   
-[136] annotate_1.88.0        timechange_0.3.0       gtable_0.3.6           parallel_4.5.2         limma_3.66.0          
-[141] softImpute_1.4-3       CVXR_1.0-15            jsonlite_2.0.0         edgeR_4.8.0            multcompView_0.1-10   
-[146] bit64_4.6.0-1          BiocNeighbors_2.4.0    litedown_0.8           RcppParallel_5.1.11-1  futile.options_1.0.1  
-[151] bdsmatrix_1.3-7        metapod_1.18.0         dqrng_0.4.1            htmltools_0.5.8.1      formatR_1.14          
-[156] glue_1.8.0             jpeg_0.1-11            boot_1.3-32            igraph_2.2.1           R6_2.6.1              
-[161] Rmpfr_1.1-2            labeling_0.4.3         rngtools_1.5.2         cluster_2.1.8.1        bbmle_1.0.25.1        
-[166] pkgload_1.4.1          Rhdf5lib_1.32.0        nloptr_2.2.1           DelayedArray_0.36.0    tidyselect_1.2.1      
-[171] plotrix_3.8-13         htmlTable_2.4.3        tensorA_0.36.2.1       xml2_1.5.0             AnnotationDbi_1.72.0  
-[176] tkrplot_0.0-30         rsvd_1.0.5             S7_0.2.1               data.table_1.17.8      htmlwidgets_1.6.4     
-[181] RColorBrewer_1.1-3     rlang_1.1.6            lmerTest_3.1-3         remotes_2.5.0         
 
 
 
