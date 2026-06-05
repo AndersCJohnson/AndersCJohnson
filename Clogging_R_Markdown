@@ -1,12 +1,12 @@
 ---
-title: "Clogging_Magnus"
+title: "Clogging_CCC_Forsmark"
 author: "Anders Johnson"
-date: "2025-12-13"
+date: "2026-06-05"
 output: html_document
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_knit$set(root.dir = "C:/Path/to/Clogging_R") ##set the working directory
+knitr::opts_knit$set(root.dir = "C:path_to/SKB Clogging and CCC Forsmark/Clogging_R") ##set the working directory
 ```
 
 
@@ -71,7 +71,7 @@ myColors <- c("#89C5DA", "#DA5724", "#74D944", "#CE50CA", "#3F4921", "#C0717C", 
 
 ##set the working directory
 ```{r set working directory}
-#setwd("C:/Path/to/Clogging_R")
+#setwd("path_to/SKB Clogging and CCC Forsmark/Clogging_R")
 ```
 
 
@@ -3119,7 +3119,7 @@ wilcox_results <- biofilm_fam_sample %>%
 
 
 wilcox_results
-significant_families
+
 
 capture.output(
   print(wilcox_results, n = Inf),
@@ -3138,6 +3138,8 @@ wilcox_effects
 capture.output(
   print(wilcox_effects, n= Inf),
   file = "Results/Microbiology/Indicies/Alpha_tables/biofilm_families_Wilcox-effects.txt")
+
+
 
 
 ```
@@ -4609,6 +4611,75 @@ wilcox_effects_biofilm
 capture.output(
   print(wilcox_effects_biofilm, n= Inf),
   file = "Results/Microbiology/Indicies/Alpha_tables/biofilm_families_Wilcox-effects_SSsTef.txt")
+
+
+AOVmodel_together <- aov(relab ~ Incubation_time_yrs,
+                data = biofilm_fam_sample_biofilm)
+
+summary(AOVmodel_together)
+
+capture.output(
+  print(wilcox_effects_biofilm, n= Inf),
+  file = "Results/Microbiology/Indicies/Alpha_tables/biofilm_families_AOVmodel_together_SSsTef.txt")
+
+anova_tables_biofilm <- biofilm_fam_sample_biofilm %>%
+  group_by(topfamily) %>%
+  group_split()
+
+sink("Results/Microbiology/Indicies/Alpha_tables/biofilm_families_ANOVA_SSsTef.txt")
+
+for(df in anova_tables_biofilm){
+
+  fam <- unique(df$topfamily)
+
+  cat("\n====================================================\n")
+  cat("Family:", fam, "\n")
+  cat("====================================================\n")
+
+  AOVmodel <- aov(relab ~ Incubation_time_yrs, data = df)
+
+  print(summary(AOVmodel))
+}
+
+sink()
+
+
+sink("Results/Microbiology/Indicies/Alpha_tables/biofilm_families_TukeyHSD_SSsTef.txt")
+
+for(df in anova_tables_biofilm){
+
+  fam <- unique(df$topfamily)
+
+  cat("\n====================================================\n")
+  cat("Family:", fam, "\n")
+  cat("====================================================\n")
+
+  Tukeymodel <- aov(relab ~ Incubation_time_yrs, data = df)
+
+  print(TukeyHSD(Tukeymodel))
+}
+
+sink()
+
+
+anova_results_biofilm <- biofilm_fam_sample_biofilm %>%
+  group_by(topfamily) %>%
+  nest() %>%
+  mutate(
+    model = map(data, ~ aov(relab ~ Incubation_time_yrs, data = .x)),
+    anova = map(model, tidy)
+  ) %>%
+  unnest(anova) %>%
+  filter(term == "Incubation_time_yrs") %>%
+  dplyr::select(topfamily, statistic, p.value) %>%
+  mutate(p_adj = p.adjust(p.value, method = "BH")) %>%
+  arrange(p_adj)
+
+anova_results_biofilm
+
+capture.output(
+  print(wilcox_effects_biofilm, n= Inf),
+  file = "Results/Microbiology/Indicies/Alpha_tables/biofilm_families_AOV_results_SSsTef.txt")
 ```
 
 
@@ -5422,7 +5493,7 @@ plot(pcoa.clogging.bray.plot)
 
 
 ```{r}
-ggsave("Results/Microbiology/Indicies/BetaDiversity_nmds_hellinger_transformed_incubation_years_decontamed.pdf", scale = 2, width = 10 , height =10, units = "cm")
+ggsave("Results/Microbiology/Indicies/BetaDiversity_nmds_hellinger_transformed_incubation_years_decontamed.pdf", scale = 1.5, width = 10 , height =10, units = "cm")
 ```
 
 
@@ -5638,6 +5709,11 @@ plot(pcoa.clogging.bray.plot)
 ggsave("Results/Microbiology/Indicies/BetaDiversity_nmds_no_normalization_decontam_stage_0.pdf" , width = 28 , height = 15, units = "cm")
 ```
 
+```{r}
+library(RVAideMemoire)
+```
+
+
 ```{r, permanova}
 
 samples_nmds_perm <- metadata %>% 
@@ -5652,7 +5728,7 @@ samples_nmds_perm <- metadata %>%
                   tibble::column_to_rownames("sample")
 
 # ensure order matches
-samples_nmds_perm <- samples_nmds_perm[rownames(repl_clogging.mdf), ]
+samples_nmds_perm <- samples_nmds_perm[rownames(as.matrix(repl_clogging.mdf)), ]
 
 
 #check sample parameters
@@ -5660,16 +5736,21 @@ table(samples_nmds_perm$Incubation_time_yrs)
 table(samples_nmds_perm$new_names)
 table(samples_nmds_perm$group)
 
+
+
+
 #check dispersion
-dispersion <- betadisper(clogging.bray, samples_nmds_perm$new_names)
-anova(dispersion)
+dispersion_bray <- betadisper(clogging.bray, samples_nmds_perm$new_names)
+anova_dispersion_bray <-anova(dispersion_bray)
 
-
+capture.output(
+  print(anova_dispersion_bray)
+  , file = "Results/Microbiology/Indicies/Alpha_tables/anova_dispersion_bray_all_samples.txt")
 
 
 # PERMANOVA (valid)
 permanova_bray <- adonis2(
-  clogging.bray ~ Incubation_time_yrs + new_names,
+  clogging.bray ~ Incubation_time_yrs * new_names,
   data = samples_nmds_perm,
   permutations = 9999)
 
@@ -5677,7 +5758,7 @@ permanova_bray
 
 capture.output(
   print(permanova_bray)
-  , file = "Results/Microbiology/Indicies/Alpha_tables/permanova_bray.txt")
+  , file = "Results/Microbiology/Indicies/Alpha_tables/permanova_bray_all_samples_interaction.txt")
 
 
 # PERMANOVA pairwise (with caveats due to singlets may not be entirely reliable, may get idential p values, artifical extreme results, and unstable F stats)
@@ -5694,7 +5775,7 @@ permanova_bray_pairwise_names
 
 capture.output(
   print(permanova_bray_pairwise_names)
-  , file = "Results/Microbiology/Indicies/Alpha_tables/permanova_bray_pairwise.txt")
+  , file = "Results/Microbiology/Indicies/Alpha_tables/permanova_bray_pairwise_all_samples.txt")
 
 
 permanova_bray_pairwise_Inc_time_yrs <- pairwise.perm.manova(
@@ -5707,22 +5788,88 @@ permanova_bray_pairwise_Inc_time_yrs
 
 capture.output(
   print(permanova_bray_pairwise_Inc_time_yrs)
-  , file = "Results/Microbiology/Indicies/Alpha_tables/permanova_bray_pairwise_Inc_time_yrs.txt")
+  , file = "Results/Microbiology/Indicies/Alpha_tables/permanova_bray_pairwise_Inc_time_yrs_all_samples.txt")
 
 
 permanova_bray_pairwise_interaction <- pairwise.perm.manova(
   clogging.bray,
-  interaction(samples_nmds_perm$new_names, samples_nmds_perm$Incubation_time_yrs),
+  interaction( samples_nmds_perm$Incubation_time_yrs, samples_nmds_perm$new_names),
   nperm = 9999
 )
 
 permanova_bray_pairwise_interaction
 
 capture.output(
-  print(permanova_bray_pairwise_new_names)
-  , file = "Results/Microbiology/Indicies/Alpha_tables/permanova_bray_pairwise_new_names.txt")
+  print(permanova_bray_pairwise_interaction)
+  , file = "Results/Microbiology/Indicies/Alpha_tables/permanova_bray_pairwise_new_names_Inc_time_yrs_all_samples.txt")
+
+
+
+
+
+
 
 ```
+
+
+```{r}
+samples_nmds_perm_grouped <- metadata %>% 
+  dplyr::filter(!sample %in% c("P37057_1005",
+                                "P37057_1017", 
+                                "P37057_1020",
+                                "P37057_1040",
+                                "P37057_1043",
+                                "P37057_1053",
+                                "P37057_1058",
+                                "P37057_1069")) %>% 
+                              dplyr::mutate(
+                                samples_grouped = dplyr::case_when(
+                                  new_names == "Borehole" ~ "Borehole",
+                                  new_names == "Macadam" ~ "Macadam",
+                                  new_names %in% c("Outlet_SS", "Outlet_Tef") ~ "Outlet",
+                                  new_names %in% c("Biofilm_SS", "Biofilm_Tef") ~ "Biofilm",
+                                  TRUE ~ NA_character_)) %>% 
+                  tibble::column_to_rownames("sample") 
+  
+
+
+
+# ensure order matches
+samples_nmds_perm_grouped <- samples_nmds_perm_grouped[rownames(as.matrix(repl_clogging.mdf)), ]
+
+
+#check sample parameters
+table(samples_nmds_perm_grouped$Incubation_time_yrs)
+table(samples_nmds_perm_grouped$samples_grouped)
+
+
+# PERMANOVA (valid)
+permanova_bray_grouped <- adonis2(
+  clogging.bray ~ Incubation_time_yrs * samples_grouped,
+  data = samples_nmds_perm_grouped,
+  permutations = 9999)
+
+permanova_bray_grouped
+
+capture.output(
+  print(permanova_bray_grouped)
+  , file = "Results/Microbiology/Indicies/Alpha_tables/permanova_bray_new_names_Inc_time_yrs_all_samples_grouped_sample_source.txt")
+
+permanova_bray_pairwise_interaction_grouped <- pairwise.perm.manova(
+  clogging.bray,
+  interaction( samples_nmds_perm_grouped$Incubation_time_yrs, samples_nmds_perm_grouped$samples_grouped),
+  nperm = 9999
+)
+
+permanova_bray_pairwise_interaction_grouped
+
+capture.output(
+  print(permanova_bray_pairwise_interaction_grouped)
+  , file = "Results/Microbiology/Indicies/Alpha_tables/permanova_bray_pairwise_new_names_Inc_time_yrs_all_samples_grouped.txt")
+
+```
+
+
 
 
 ```{r}
@@ -5754,7 +5901,7 @@ aov_dispersion
 
 capture.output(
   print(aov_dispersion)
-  , file = "Results/Microbiology/Indicies/Alpha_tables/biofilm_anova_dispersion.txt")
+  , file = "Results/Microbiology/Indicies/Alpha_tables/biofilm_anova_dispersion_SSvsTef.txt")
 
 biofilm_permanova <- adonis2(
   biofilm_dist ~ Incubation_time_yrs,
@@ -5766,8 +5913,20 @@ biofilm_permanova
 
 capture.output(
   print(biofilm_permanova)
-  , file = "Results/Microbiology/Indicies/Alpha_tables/biofilm_permanova.txt")
+  , file = "Results/Microbiology/Indicies/Alpha_tables/biofilm_permanova_SSvsTef.txt")
 
+
+biofilm_permanova_interact <- adonis2(
+  biofilm_dist ~ Incubation_time_yrs * new_names,
+  data = biofilm_meta,
+  permutations = 9999
+)
+
+biofilm_permanova_interact
+
+capture.output(
+  print(biofilm_permanova_interact)
+  , file = "Results/Microbiology/Indicies/Alpha_tables/biofilm_permanova_interaction_SSvsTef.txt")
 
 pairwise_biofilm <- pairwise.perm.manova(
   biofilm_dist,
@@ -5779,7 +5938,7 @@ pairwise_biofilm
 
 capture.output(
   print(pairwise_biofilm)
-  , file = "Results/Microbiology/Indicies/Alpha_tables/pairwise_biofilm.txt")
+  , file = "Results/Microbiology/Indicies/Alpha_tables/pairwise_biofilm_SSvsTef.txt")
 ```
 
 
@@ -6170,7 +6329,7 @@ balloon_plot_data_fig_subset_noCF <- balloon_plot_data %>%
 
 ggplot(balloon_plot_data_fig_subset_noCF, 
        aes(x = Incubation_time_yrs, 
-           y = fct_relevel(`Gene ID`, !!!rev(Gene_ID_names_relevel_fig_subset)),
+           y = fct_relevel(`Gene ID`, !!!rev(Gene_ID_names_relevel_fig_subset_noCF)),
            size = ifelse(relab_adjusted > 0, relab_adjusted, NA),
            color = new_names)) +
   geom_point(alpha = .7) +
